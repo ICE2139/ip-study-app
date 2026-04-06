@@ -5,7 +5,7 @@ import random
 st.set_page_config(layout="wide")
 
 # パスワード
-PASSWORD = "2139"
+PASSWORD = "1234"
 
 if "auth" not in st.session_state:
     st.session_state.auth = False
