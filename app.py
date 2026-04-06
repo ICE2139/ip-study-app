@@ -1,84 +1,68 @@
 import streamlit as st
-import openai
-import random
+from openai import OpenAI
 
-st.set_page_config(layout="wide")
+client = OpenAI()
 
-# パスワード
-PASSWORD = "1234"
+st.title("知財2級AI問題アプリ")
 
-if "auth" not in st.session_state:
-    st.session_state.auth = False
+# --- 大分類 ---
+main_category = st.selectbox(
+    "大分類",
+    ["特許", "商標", "意匠", "著作権"]
+)
 
-if not st.session_state.auth:
-    pwd = st.text_input("パスワード", type="password")
-    if pwd == PASSWORD:
-        st.session_state.auth = True
-    else:
-        st.stop()
+# --- 小分類（大分類に応じて変わる） ---
+if main_category == "特許":
+    sub_category = st.selectbox(
+        "小分類",
+        ["新規性", "進歩性", "先願主義", "特許要件"]
+    )
+elif main_category == "商標":
+    sub_category = st.selectbox(
+        "小分類",
+        ["識別力", "類似", "商標登録要件"]
+    )
+elif main_category == "意匠":
+    sub_category = st.selectbox(
+        "小分類",
+        ["創作性", "類似意匠", "意匠登録要件"]
+    )
+else:  # 著作権
+    sub_category = st.selectbox(
+        "小分類",
+        ["著作物性", "権利内容", "保護期間"]
+    )
 
-openai.api_key = st.secrets["OPENAI_API_KEY"]
+# --- 細分類（難易度） ---
+mini_category = st.selectbox(
+    "難易度",
+    ["初級", "中級", "上級"]
+)
 
-# 分野データ（例：あとで全部入れる）
-fields = {
-    "特許法・実用新案法": {
-        "特許法の目的と保護対象": [
-            "特許法はなぜ存在するか",
-            "企業経営と特許権の関係",
-            "特許出願による経営上の利益",
-            "特許と営業秘密の関係",
-            "特許法の保護対象である発明とは"
-        ]
-    }
-}
-
-# UI
-st.title("知財2級 AI問題アプリ")
-
-main = st.selectbox("大分類", list(fields.keys()))
-sub = st.selectbox("小分類", list(fields[main].keys()))
-
-# ミニ分類ランダム
-mini = random.choice(fields[main][sub])
-
-# 問題生成
+# --- 問題生成 ---
 def generate_problem(main, sub, mini):
     prompt = f"""
-    知的財産管理技能検定2級（学科）レベルの問題を作成せよ。
+    以下の条件で知的財産管理技能検定2級の問題を1問作ってください。
 
-    分野: {main} / {sub} / {mini}
+    大分類: {main}
+    小分類: {sub}
+    難易度: {mini}
 
-    条件:
-    ・四択問題
-    ・ひっかけを含める
-    ・条文理解を問う
-    ・基礎〜応用レベル
-    ・知的財産と関連付ける
-    ・解説は簡潔に
-    ・根拠（条文の趣旨）を書く
-    ・具体例も書く
-
-    出力形式:
-    【問題】
-    【選択肢】
-    ①
-    ②
-    ③
-    ④
-    【正解】
-    【解説】
-    【根拠】
-    【具体例】
+    選択式問題にしてください。
+    必ず解説もつけてください。
     """
 
-    res = openai.ChatCompletion.create(
+    res = client.chat.completions.create(
         model="gpt-4o-mini",
-        messages=[{"role": "user", "content": prompt}]
+        messages=[
+            {"role": "user", "content": prompt}
+        ]
     )
 
     return res.choices[0].message.content
 
-# 実行ボタン
-if st.button("問題生成"):
-    result = generate_problem(main, sub, mini)
-    st.write(result)
+# --- 実行ボタン ---
+if st.button("問題を生成"):
+    with st.spinner("問題生成中..."):
+        result = generate_problem(main_category, sub_category, mini_category)
+        st.write(result)
