@@ -2,6 +2,7 @@ import streamlit as st
 from openai import OpenAI
 import json
 import time
+import random
 from collections import defaultdict
 
 client = OpenAI()
@@ -37,7 +38,7 @@ def init():
 init()
 
 # =========================
-# UIスタイル
+# UI
 # =========================
 st.markdown("""
 <style>
@@ -80,19 +81,20 @@ def generate_problem(cat):
 
 分野:{cat}
 
-条件：
-・四択
-・正解1つ
-・曖昧禁止
-・選択肢だけで判断可能
+必ず守る：
+・4択
+・1つだけ明確に正解
+・選択肢のレベルは同一
+・設問は「最も適切」または「__不適切__」
+・不適切の場合は「不適切」に下線をつける
 
 JSON：
 {{
- "question":"...",
+ "question":"",
  "choices":["A...","B...","C...","D..."],
  "answer":"A",
- "explanation":"...",
- "evidence":"..."
+ "explanation":"",
+ "evidence":""
 }}
 """
 
@@ -103,13 +105,25 @@ JSON：
         )
         try:
             data = json.loads(res.choices[0].message.content)
-            if len(data["choices"]) == 4:
-                return data
+
+            # ▼ answerの偏り対策（A固定防止）
+            choices = data["choices"]
+            random.shuffle(choices)
+
+            correct = data["answer"]
+            data["choices"] = choices
+
+            for c in choices:
+                if c.startswith(correct):
+                    data["answer"] = c[0]
+
+            return data
+
         except:
             continue
 
 # =========================
-# 回答処理（演習）
+# 回答処理
 # =========================
 def submit_answer(choice):
     d = st.session_state.current
@@ -129,7 +143,7 @@ def submit_answer(choice):
 # =========================
 def start_exam():
 
-    categories = (
+    weighted = (
         ["特許・実用新案"] * 10 +
         ["商標"] * 8 +
         ["意匠"] * 6 +
@@ -138,12 +152,15 @@ def start_exam():
         ["その他"] * 6
     )
 
-    st.session_state.exam_questions = [generate_problem(c) for c in categories]
+    random.shuffle(weighted)
+
+    st.session_state.exam_questions = [generate_problem(c) for c in weighted]
 
     st.session_state.exam_index = 0
     st.session_state.exam_answers = []
     st.session_state.exam_start = time.time()
     st.session_state.exam_done = False
+    st.session_state.exam_results = []
 
 # =========================
 # 模試採点
@@ -151,9 +168,17 @@ def start_exam():
 def submit_exam():
 
     correct = 0
+    results = []
 
     for q, a in zip(st.session_state.exam_questions, st.session_state.exam_answers):
-        if a == q["answer"]:
+        is_correct = (a == q["answer"])
+
+        results.append({
+            "cat": q["cat"],
+            "correct": is_correct
+        })
+
+        if is_correct:
             correct += 1
         else:
             st.session_state.wrong_questions.append(q)
@@ -163,7 +188,8 @@ def submit_exam():
     st.session_state.exam_result = {
         "score": correct,
         "rate": rate,
-        "pass": rate >= 80
+        "pass": rate >= 80,
+        "results": results
     }
 
     st.session_state.exam_done = True
@@ -173,7 +199,7 @@ def submit_exam():
 # =========================
 if st.session_state.page == "menu":
 
-    st.title("知財2級AIアプリ(ver.1.7.0)")
+    st.title("知財2級AIアプリ(ver.1.7.1)")
 
     st.button("問題演習", on_click=go, args=("practice",))
     st.button("模擬試験", on_click=go, args=("exam",))
@@ -263,6 +289,9 @@ elif st.session_state.page == "exam":
                 if st.session_state.exam_index >= 40:
                     submit_exam()
 
+                else:
+                    st.session_state.current_exam_q = None
+
         else:
             r = st.session_state.exam_result
 
@@ -273,6 +302,20 @@ elif st.session_state.page == "exam":
                 st.success("合格！")
             else:
                 st.error("不合格")
+
+            # 分野別正答率
+            stats = defaultdict(lambda: {"total":0,"correct":0})
+
+            for res in r["results"]:
+                stats[res["cat"]]["total"] += 1
+                if res["correct"]:
+                    stats[res["cat"]]["correct"] += 1
+
+            st.write("分野別正答率")
+
+            for cat, v in stats.items():
+                rate = v["correct"] / v["total"] * 100
+                st.write(f"{cat}: {v['correct']}/{v['total']} ({rate:.1f}%)")
 
 # =========================
 # 復習
