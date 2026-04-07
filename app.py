@@ -50,7 +50,7 @@ CATEGORIES = [
 ]
 
 # =========================
-# JSONパース
+# JSON安全
 # =========================
 def safe_json(text):
     try:
@@ -59,26 +59,22 @@ def safe_json(text):
         return None
 
 # =========================
-# 問題生成（日本前提は内部のみ）
+# 問題生成（簡潔＋日本前提は内部のみ）
 # =========================
 def generate_problem(cat):
 
     prompt = f"""
-あなたは日本の知的財産試験の問題作成者である。
-
 分野:{cat}
 
-【内部前提】
-・日本の法律を前提にする（問題文には書かない）
-・日本の試験問題として自然にする
+日本の知財試験問題として作成（日本前提は内部処理のみ）
 
-【重要制約】
-・必ず唯一の正解
+制約：
+・唯一の正解
 ・曖昧禁止
-・比較・順位禁止
+・比較禁止
 ・選択肢は一意に判別可能
 
-【出力形式】
+出力形式：
 {{
 "question":"",
 "choices":["","","",""],
@@ -89,7 +85,6 @@ def generate_problem(cat):
 """
 
     for _ in range(3):
-
         try:
             res = client.chat.completions.create(
                 model="gpt-5.4-nano",
@@ -128,7 +123,7 @@ def generate_problem(cat):
         "question":"生成失敗",
         "choices":["A.-","B.-","C.-","D.-"],
         "answer":"A",
-        "explanation":"",
+        "explanation":"生成に失敗しました。",
         "evidence":""
     }
 
@@ -168,7 +163,7 @@ def show_timer():
     """, unsafe_allow_html=True)
 
 # =========================
-# 回答処理（演習）
+# 回答（演習）
 # =========================
 def submit_answer(choice):
 
@@ -240,7 +235,7 @@ def select(cat):
 # =========================
 if st.session_state.page == "menu":
 
-    st.title("知財2級学科AIサイト(ver.1.7.8)")
+    st.title("知財2級学科AIサイト(ver.1.7.9)")
 
     st.button("問題演習", on_click=go, args=("practice",))
     st.button("模擬試験", on_click=go, args=("exam",))
@@ -258,7 +253,6 @@ elif st.session_state.page == "practice":
         for c in CATEGORIES:
             st.button(c, on_click=select, args=(c,))
 
-    # 分野表示
     if st.session_state.selected_category:
         st.markdown(f"### 📘 分野：{st.session_state.selected_category}")
 
@@ -280,11 +274,14 @@ elif st.session_state.page == "practice":
         if st.session_state.answered:
 
             if st.session_state.result == "correct":
-                st.success("正解")
+                st.success(f"正解（{q['answer']}）")
             else:
                 st.error(f"不正解（正解：{q['answer']}）")
 
+            st.markdown("### 解説")
             st.write(q["explanation"])
+
+            st.markdown("### 根拠")
             st.write(q["evidence"])
 
 # =========================
