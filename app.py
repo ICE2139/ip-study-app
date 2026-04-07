@@ -1,47 +1,43 @@
 import streamlit as st
 from openai import OpenAI
 import random, time
-from collections import Counter
+from collections import Counter, defaultdict
 
 client = OpenAI()
 
 # =========================
-# UI（完成版）
+# UI（ダーク＋カード）
 # =========================
 st.markdown("""
 <style>
-body {
-    background: linear-gradient(135deg, #0e1117, #1c1f26);
-    color: #ffffff;
-}
-.stApp { background: transparent; }
-
-h1 { text-align:center; font-weight:700; }
-
-.block-container {
-    padding:2rem 3rem;
-    border-radius:12px;
-    background: rgba(255,255,255,0.02);
+html, body, .stApp {
+    background-color: #0e1117 !important;
+    color: white !important;
 }
 
+/* カード */
+.card {
+    background-color: #1c1f26;
+    padding: 20px;
+    border-radius: 12px;
+    margin-bottom: 15px;
+}
+
+/* ボタン */
 .stButton button {
-    background: linear-gradient(135deg,#4CAF50,#2e7d32);
-    color:white !important;
-    border-radius:10px;
-    padding:10px 18px;
-    font-weight:bold;
-    border:none;
+    width: 100%;
+    background-color: #262730;
+    color: white !important;
+    border-radius: 10px;
+    padding: 12px;
 }
 
-.stButton button:hover {
-    transform: scale(1.05);
-}
-
+/* ラジオ */
 .stRadio > div {
-    background: rgba(255,255,255,0.05);
-    padding:10px;
-    border-radius:8px;
-    margin-bottom:6px;
+    background-color: #1c1f26;
+    padding: 10px;
+    border-radius: 8px;
+    margin-bottom: 6px;
 }
 </style>
 """, unsafe_allow_html=True)
@@ -67,19 +63,12 @@ def generate_problem(main):
 
 分野: {main}
 
-【条件】
-・実務NG
+・事例問題は禁止
 ・知識問題のみ
 ・簡潔
 
-問題形式：
-・最も{problem_type}なもの
-
-■不適切
-正しい3つ＋誤り1つ（自然）
-
-■適切
-正解1つ＋誤り3つ
+形式：
+最も{problem_type}なものを選べ
 
 【出力】
 【問題】
@@ -109,7 +98,7 @@ A
 # =========================
 if st.session_state.page == "menu":
 
-    st.title("知財2級AIアプリ(ver.1.4.5)")
+    st.title("知財2級AIアプリ(ver.1.5.0)")
 
     if st.button("問題演習"):
         st.session_state.page = "practice"
@@ -168,17 +157,19 @@ elif st.session_state.page == "practice":
 
     data = st.session_state.current
 
+    st.markdown('<div class="card">', unsafe_allow_html=True)
+
     if data["ptype"]=="不適切":
         st.markdown("最も <u>不適切</u> を選べ",unsafe_allow_html=True)
     else:
         st.write("最も適切を選べ")
 
     st.write(data["q"])
+    st.markdown('</div>', unsafe_allow_html=True)
 
     choice = st.radio("選択",data["c"])
 
     if st.button("回答"):
-
         st.session_state.answered=True
 
         if choice[0]==data["a"]:
@@ -188,10 +179,16 @@ elif st.session_state.page == "practice":
             st.session_state.wrong_questions.append(st.session_state.category)
 
     if st.session_state.answered:
+
+        st.markdown('<div class="card">', unsafe_allow_html=True)
         st.write("解説")
         st.write(data["ex"])
+        st.markdown('</div>', unsafe_allow_html=True)
+
+        st.markdown('<div class="card">', unsafe_allow_html=True)
         st.write("根拠")
-        st.info(data["ev"])
+        st.write(data["ev"])
+        st.markdown('</div>', unsafe_allow_html=True)
 
 # =========================
 # 10問チャレンジ
@@ -207,7 +204,7 @@ elif st.session_state.page == "challenge":
 
     if st.session_state.count < 10:
 
-        raw,ptype = generate_problem(category)
+        raw,_ = generate_problem(category)
 
         q = raw.split("【選択肢】")[0]
         c = raw.split("【選択肢】")[1].split("【正解】")[0]
@@ -230,7 +227,7 @@ elif st.session_state.page == "challenge":
         st.write(f"正答率：{rate}%")
 
 # =========================
-# 模擬試験
+# 模擬試験（完全版）
 # =========================
 elif st.session_state.page == "exam":
 
@@ -243,6 +240,7 @@ elif st.session_state.page == "exam":
     if not st.session_state.exam_started:
 
         if st.button("試験開始"):
+
             st.session_state.exam_started=True
             st.session_state.start_time=time.time()
             st.session_state.exam_data=[]
@@ -259,10 +257,12 @@ elif st.session_state.page == "exam":
                 q=raw.split("【選択肢】")[0]
                 c=raw.split("【選択肢】")[1].split("【正解】")[0]
                 a=raw.split("【正解】")[1].split("【解説】")[0].strip()
+
                 st.session_state.exam_data.append({
                     "q":q,
                     "c":[x for x in c.split("\n") if x],
-                    "a":a
+                    "a":a,
+                    "category":cat
                 })
 
     if st.session_state.exam_started:
@@ -273,7 +273,7 @@ elif st.session_state.page == "exam":
             st.warning("時間終了")
             finish=True
         else:
-            st.write(f"残り{remain//60}分")
+            st.write(f"残り時間：{remain//60}分 {remain%60}秒")
             finish=False
 
         for i,q in enumerate(st.session_state.exam_data):
@@ -281,6 +281,7 @@ elif st.session_state.page == "exam":
             st.write(q["q"])
             ch=st.radio("選択",q["c"],key=f"ex{i}")
             st.session_state.exam_answers[i]=ch[0]
+            st.write("---")
 
         if st.button("試験終了") or finish:
 
@@ -291,7 +292,7 @@ elif st.session_state.page == "exam":
 
             rate=score/40*100
 
-            st.title("結果")
+            st.title("試験結果")
             st.write(f"{score}/40")
             st.write(f"{rate:.1f}%")
 
@@ -300,37 +301,21 @@ elif st.session_state.page == "exam":
             else:
                 st.error("不合格")
 
-# =========================
-# 分析
-# =========================
-elif st.session_state.page == "analysis":
+            stats=defaultdict(lambda: {"total":0,"correct":0})
 
-    if st.button("戻る"):
-        st.session_state.page="menu"
+            for i,q in enumerate(st.session_state.exam_data):
+                cat=q["category"]
+                stats[cat]["total"]+=1
+                if st.session_state.exam_answers.get(i)==q["a"]:
+                    stats[cat]["correct"]+=1
 
-    if not st.session_state.wrong_questions:
-        st.write("データ不足")
-    else:
-        counter=Counter(st.session_state.wrong_questions)
+            st.write("分野別成績")
+            for cat,data in stats.items():
+                r=data["correct"]/data["total"]*100
+                st.write(f"{cat}:{data['correct']}/{data['total']} ({r:.1f}%)")
 
-        for k,v in counter.most_common():
-            st.write(f"{k}:{v}")
-
-        text="\n".join([f"{k}:{v}" for k,v in counter.items()])
-
-        res=client.chat.completions.create(
-            model="gpt-5.4-nano",
-            messages=[{"role":"user","content":f"{text}の弱点分析"}]
-        )
-
-        st.write(res.choices[0].message.content)
-
-# =========================
-# 復習
-# =========================
-elif st.session_state.page == "review":
-
-    if st.button("戻る"):
-        st.session_state.page="menu"
-
-    st.write(st.session_state.wrong_questions)
+            st.write("弱点ランキング")
+            weak=sorted(stats.items(),key=lambda x:x[1]["correct"]/x[1]["total"])
+            for cat,data in weak:
+                r=data["correct"]/data["total"]*100
+                st.write(f"{cat}:{r:.1f}%")
