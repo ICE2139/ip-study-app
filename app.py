@@ -15,6 +15,7 @@ def init():
         "page":"menu",
         "show_category":False,
         "selected_category":None,
+
         "current":None,
         "answered":False,
         "result":None,
@@ -43,13 +44,13 @@ init()
 # 分野
 # =========================
 CATEGORIES = [
-    "特許・実用新案","意匠","商標","条約","著作権",
-    "不正競争防止法","民法","独占禁止法",
-    "種苗法","関税法","外為法","弁理士法"
+    "特許・実用新案","意匠","商標","条約",
+    "著作権","不正競争防止法","民法",
+    "独占禁止法","種苗法","関税法","外為法","弁理士法"
 ]
 
 # =========================
-# JSON安全
+# JSON安全パース
 # =========================
 def safe_json(text):
     try:
@@ -58,19 +59,23 @@ def safe_json(text):
         return None
 
 # =========================
-# 問題生成
+# 問題生成（安定版）
 # =========================
 def generate_problem(cat):
 
     prompt = f"""
-知財2級
+知財2級試験問題
 
 分野:{cat}
 
-・「最も」を使う場合でも必ず1つだけ正解
-・選択肢は必ず一意で曖昧禁止
+制約:
+・必ず「唯一の正解」
+・曖昧禁止
+・比較・順位問題は禁止
+・選択肢は完全に一意に判別可能にする
+・「最も」などの曖昧語は禁止
 
-JSON：
+形式:
 {{
 "question":"",
 "choices":["","","",""],
@@ -81,6 +86,7 @@ JSON：
 """
 
     for _ in range(3):
+
         try:
             res = client.chat.completions.create(
                 model="gpt-5.4-nano",
@@ -92,10 +98,11 @@ JSON：
             if not data:
                 continue
 
+            # 選択肢補正（短すぎ防止）
             fixed = []
             for c in data["choices"]:
-                if len(c) < 15:
-                    c += "（条件明確）"
+                if len(c) < 20:
+                    c += "（条件あり）"
                 fixed.append(c)
 
             random.shuffle(fixed)
@@ -103,10 +110,10 @@ JSON：
             labels = ["A","B","C","D"]
             data["choices"] = [f"{labels[i]}. {fixed[i]}" for i in range(4)]
 
-            data["cat"] = cat
-
             if data["answer"] not in labels:
                 continue
+
+            data["cat"] = cat
 
             return data
 
@@ -133,62 +140,68 @@ def show_timer():
     elapsed = int(time.time() - st.session_state.exam_start)
     remaining = 70*60 - elapsed
 
-    if remaining < 0:
-        st.warning("時間終了")
+    if remaining <= 0:
+        st.error("時間終了")
         return
 
     m = remaining // 60
     s = remaining % 60
 
-    # 10分以下で赤色
     color = "red" if remaining <= 600 else "white"
 
-    st.markdown(
-        f"""
-        <div style="position:fixed;top:10px;right:20px;
-        background:#333;color:{color};padding:10px;
-        border-radius:8px;z-index:999;font-weight:bold;">
-        ⏰ {m:02d}:{s:02d}
-        </div>
-        """,
-        unsafe_allow_html=True
-    )
+    st.markdown(f"""
+    <div style="
+    position:fixed;
+    top:10px;
+    right:20px;
+    background:#222;
+    color:{color};
+    padding:10px;
+    border-radius:8px;
+    font-weight:bold;
+    z-index:999;">
+    ⏰ {m:02d}:{s:02d}
+    </div>
+    """, unsafe_allow_html=True)
 
 # =========================
-# 回答処理
+# 回答処理（問題演習）
 # =========================
 def submit_answer(choice):
 
-    d = st.session_state.current
+    q = st.session_state.current
     st.session_state.answered = True
 
-    if choice and choice.startswith(d["answer"]):
+    if choice and choice.startswith(q["answer"]):
         st.session_state.result = "correct"
     else:
         st.session_state.result = "wrong"
-        st.session_state.wrong_questions.append({"data":d,"mode":"practice"})
+        st.session_state.wrong_questions.append({"data":q,"mode":"practice"})
 
-    st.session_state.practice_stats[d["cat"]]["total"] += 1
+    st.session_state.practice_stats[q["cat"]]["total"] += 1
 
     if st.session_state.result == "correct":
-        st.session_state.practice_stats[d["cat"]]["correct"] += 1
+        st.session_state.practice_stats[q["cat"]]["correct"] += 1
 
 # =========================
 # 模試
 # =========================
 def start_exam():
+
     st.session_state.exam_index = 0
     st.session_state.exam_answers = []
     st.session_state.exam_done = False
     st.session_state.exam_start = time.time()
     st.session_state.exam_stats = defaultdict(lambda: {"total":0,"correct":0})
     st.session_state.exam_valid_count = 0
+
     st.session_state.current_exam = generate_problem(random.choice(CATEGORIES))
 
 def next_exam(choice):
 
     q = st.session_state.current_exam
 
+    # 生成失敗はカウントしない
     if not q or q["question"] == "生成失敗":
         st.session_state.current_exam = generate_problem(random.choice(CATEGORIES))
         return
@@ -226,7 +239,7 @@ def select(cat):
 # =========================
 if st.session_state.page == "menu":
 
-    st.title("知財2級AIサイト(ver.1.7.6)")
+    st.title("知財2級学科AIサイト(ver.1.7.7)")
 
     st.button("問題演習", on_click=go, args=("practice",))
     st.button("模擬試験", on_click=go, args=("exam",))
@@ -238,6 +251,7 @@ if st.session_state.page == "menu":
 elif st.session_state.page == "practice":
 
     st.button("戻る", on_click=go, args=("menu",))
+
     st.button("分野選択", on_click=toggle)
 
     if st.session_state.show_category:
@@ -285,8 +299,8 @@ elif st.session_state.page == "exam":
 
     elif not st.session_state.exam_done:
 
-        i = st.session_state.exam_index
         q = st.session_state.current_exam
+        i = st.session_state.exam_index
 
         st.write(f"Q{i+1}/40")
 
