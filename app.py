@@ -119,7 +119,7 @@ def generate_problem(main, mode):
     """
 
     res = client.chat.completions.create(
-        model="gpt-4o-mini",
+        model="gpt-5.4-nano",
         messages=[{"role": "user", "content": prompt}]
     )
 
