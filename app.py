@@ -95,7 +95,7 @@ JSONのみで出力：
 # =========================
 if st.session_state.page == "menu":
 
-    st.title("知財2級AIアプリ")
+    st.title("知財2級AIアプリ(ver.1.6.1)")
 
     if st.button("問題演習"):
         st.session_state.page = "practice"
