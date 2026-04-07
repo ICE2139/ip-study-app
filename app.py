@@ -11,29 +11,25 @@ body {
     background-color: #0e1117;
     color: white;
 }
-
 .stApp {
     background-color: #0e1117;
 }
-
 html, body, [class*="css"] {
     color: white !important;
 }
-
 .stButton button {
     background-color: #262730;
     color: white !important;
     border-radius: 8px;
     padding: 8px 16px;
 }
-
 .stRadio label {
     color: white !important;
 }
 </style>
 """, unsafe_allow_html=True)
 
-st.title("知財2級AI問題アプリ（根拠付き）")
+st.title("知財2級AI問題")
 
 # --- 分野 ---
 categories = [
@@ -44,15 +40,29 @@ categories = [
 
 main_category = st.selectbox("分野を選択", categories)
 
+# --- 状態管理 ---
+if "problem" not in st.session_state:
+    st.session_state.problem = None
+    st.session_state.answer = None
+    st.session_state.explanation = None
+    st.session_state.choices = None
+    st.session_state.evidence = None
+    st.session_state.answered = False
+    st.session_state.problem_type = None
+
 # --- 問題生成 ---
 def generate_problem(main):
 
     trick = random.choice(["あり", "なし"])
+    problem_type = random.choice(["適切", "不適切"])
 
     prompt = f"""
     知的財産管理技能検定2級【学科試験形式】の問題を1問作成してください。
 
     分野: {main}
+
+    問題形式：
+    ・「最も{problem_type}なもの」を選ばせる問題
 
     条件：
     ・四択問題
@@ -63,8 +73,7 @@ def generate_problem(main):
     ・選択肢はA〜D
 
     ・必ず「根拠」を付けること
-      → 条文番号 or 判例 or 趣旨説明
-      → 信頼できる形
+      → 条文番号 or 判例 or 趣旨
 
     出力形式（厳守）：
 
@@ -84,7 +93,7 @@ def generate_problem(main):
     （簡潔）
 
     【根拠】
-    （例：特許法第29条など、条文や理由）
+    （条文など）
     """
 
     res = client.chat.completions.create(
@@ -92,22 +101,13 @@ def generate_problem(main):
         messages=[{"role": "user", "content": prompt}]
     )
 
-    return res.choices[0].message.content
+    return res.choices[0].message.content, problem_type
 
 
-# --- 状態管理 ---
-if "problem" not in st.session_state:
-    st.session_state.problem = None
-    st.session_state.answer = None
-    st.session_state.explanation = None
-    st.session_state.choices = None
-    st.session_state.evidence = None
-    st.session_state.answered = False
-
-# --- 問題生成 ---
+# --- 生成ボタン ---
 if st.button("問題生成"):
 
-    raw = generate_problem(main_category)
+    raw, problem_type = generate_problem(main_category)
 
     try:
         question = raw.split("【選択肢】")[0]
@@ -123,13 +123,21 @@ if st.button("問題生成"):
         st.session_state.answer = answer
         st.session_state.explanation = explanation
         st.session_state.evidence = evidence
+        st.session_state.problem_type = problem_type
         st.session_state.answered = False
 
     except:
         st.error("問題の生成に失敗しました。もう一度試してください。")
 
-# --- 表示 ---
+
+# --- 問題表示 ---
 if st.session_state.problem:
+
+    # --- 問題形式表示（ここが進化ポイント） ---
+    if st.session_state.problem_type == "不適切":
+        st.markdown("【問題形式】最も <b><u>不適切</u></b> なものを選べ", unsafe_allow_html=True)
+    else:
+        st.write("【問題形式】最も適切なものを選べ")
 
     st.write(st.session_state.problem)
 
