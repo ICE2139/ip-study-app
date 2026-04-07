@@ -4,118 +4,64 @@ import random
 
 client = OpenAI()
 
-# --- 背景反転（ダークモード風） ---
+# --- ライトモード（白背景） ---
 st.markdown("""
 <style>
 body {
-    background-color: #0e1117;
-    color: white;
+    background-color: white;
+    color: black;
 }
 .stApp {
-    background-color: #0e1117;
+    background-color: white;
 }
 </style>
 """, unsafe_allow_html=True)
 
 st.title("知財2級AI問題アプリ")
 
-# --- 大分類 ---
+# --- 分野 ---
 categories = [
-    "特許・実用新案",
-    "意匠",
-    "商標",
-    "条約",
-    "著作権",
-    "不正競争防止法",
-    "民法",
-    "独占禁止法",
-    "種苗法",
-    "関税法",
-    "外為法",
-    "弁理士法"
+    "特許・実用新案","意匠","商標","条約","著作権",
+    "不正競争防止法","民法","独占禁止法",
+    "種苗法","関税法","外為法","弁理士法"
 ]
 
 main_category = st.selectbox("分野を選択", categories)
 
-# --- モード ---
-mode = st.radio("モード選択", ["ランダム出題", "分野別集中"])
-
-# --- 内部分類 ---
-classification = {
-    "特許・実用新案": [
-        "特許要件", "出願手続", "審査", "権利範囲", "侵害", "ライセンス", "実用新案"
-    ],
-    "意匠": [
-        "登録要件", "出願手続", "権利範囲", "侵害"
-    ],
-    "商標": [
-        "登録要件", "類否判断", "出願手続", "権利範囲", "侵害"
-    ],
-    "条約": [
-        "パリ条約", "PCT", "TRIPS", "ベルヌ条約"
-    ],
-    "著作権": [
-        "著作物", "著作者", "人格権", "財産権", "制限規定", "侵害"
-    ],
-    "不正競争防止法": [
-        "営業秘密", "不正競争行為", "制裁"
-    ],
-    "民法": [
-        "契約", "債務不履行"
-    ],
-    "独占禁止法": [
-        "独占禁止", "ライセンス関係"
-    ],
-    "種苗法": [
-        "登録要件", "育成者権"
-    ],
-    "関税法": [
-        "輸出入規制"
-    ],
-    "外為法": [
-        "輸出規制"
-    ],
-    "弁理士法": [
-        "業務範囲"
-    ]
-}
-
 # --- 問題生成 ---
-def generate_problem(main, mode):
-    if mode == "分野別集中":
-        sub = random.choice(classification[main])
-    else:
-        all_subs = sum(classification.values(), [])
-        sub = random.choice(all_subs)
+def generate_problem(main):
+
+    trick = random.choice(["あり", "なし"])
 
     prompt = f"""
-    知的財産管理技能検定2級レベルの問題を1問作成してください。
+    知的財産管理技能検定2級【学科試験形式】の問題を1問作成してください。
 
     分野: {main}
-    論点: {sub}
 
     条件：
-    ・ひっかけを必ず含める
-    ・知財と関連付ける
-    ・基本は4択問題
-    ・数値（存続期間・費用など）の問題の場合は記述式
-    ・記述式の場合は必ず前提条件（年・状況）を書く
-    ・実務・試験形式にする
+    ・四択問題
+    ・実務ではなく純粋な知識問題
+    ・ひっかけ: {trick}
+    ・試験っぽい文章
+    ・簡潔で明確
+    ・選択肢は必ずA〜D
 
-    出力形式：
+    出力形式（厳守）：
 
     【問題】
     （問題文）
 
     【選択肢】
-    A.
-    B.
-    C.
-    D.
+    A. ...
+    B. ...
+    C. ...
+    D. ...
 
     【正解】
+    A
 
     【解説】
+    （簡潔に）
     """
 
     res = client.chat.completions.create(
@@ -125,8 +71,56 @@ def generate_problem(main, mode):
 
     return res.choices[0].message.content
 
-# --- 実行 ---
-if st.button("問題を生成"):
-    with st.spinner("生成中..."):
-        result = generate_problem(main_category, mode)
-        st.write(result)
+
+# --- 状態管理 ---
+if "problem" not in st.session_state:
+    st.session_state.problem = None
+    st.session_state.answer = None
+    st.session_state.explanation = None
+    st.session_state.choices = None
+
+# --- 問題生成ボタン ---
+if st.button("問題生成"):
+
+    raw = generate_problem(main_category)
+
+    try:
+        question = raw.split("【選択肢】")[0]
+        choices_part = raw.split("【選択肢】")[1].split("【正解】")[0]
+        answer = raw.split("【正解】")[1].split("【解説】")[0].strip()
+        explanation = raw.split("【解説】")[1]
+
+        choices = [c.strip() for c in choices_part.split("\n") if c.strip()]
+
+        st.session_state.problem = question
+        st.session_state.choices = choices
+        st.session_state.answer = answer
+        st.session_state.explanation = explanation
+
+    except:
+        st.error("問題の生成に失敗しました。もう一度試してください。")
+
+
+# --- 問題表示 ---
+if st.session_state.problem:
+
+    st.write(st.session_state.problem)
+
+    user_choice = st.radio(
+        "選択してください",
+        st.session_state.choices,
+        key="choice"
+    )
+
+    # --- 回答 ---
+    if st.button("回答する"):
+
+        selected = user_choice[0]
+
+        if selected == st.session_state.answer:
+            st.success("正解！⭕")
+        else:
+            st.error(f"不正解 ❌ 正解は {st.session_state.answer}")
+
+        st.write("【解説】")
+        st.write(st.session_state.explanation)
