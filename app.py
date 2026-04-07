@@ -11,52 +11,183 @@ client = OpenAI()
 # 初期化
 # =========================
 def init():
-    if "page" not in st.session_state:
-        st.session_state.page = "menu"
+    defaults = {
+        "page": "menu",
+        "show_category": False,
+        "selected_category": None,
+        "current": None,
+        "answered": False,
+        "result": None,
+        "wrong_questions": [],
+        "practice_stats": defaultdict(lambda: {"total":0,"correct":0}),
+        "exam_questions": None,
+        "exam_index": 0,
+        "exam_answers": [],
+        "exam_done": False
+    }
 
-    if "show_category" not in st.session_state:
-        st.session_state.show_category = False
-
-    if "selected_category" not in st.session_state:
-        st.session_state.selected_category = None
-
-    if "current" not in st.session_state:
-        st.session_state.current = None
-
-    if "answered" not in st.session_state:
-        st.session_state.answered = False
-
-    if "result" not in st.session_state:
-        st.session_state.result = None
-
-    if "wrong_questions" not in st.session_state:
-        st.session_state.wrong_questions = []
-
-    if "practice_stats" not in st.session_state:
-        st.session_state.practice_stats = defaultdict(lambda: {"total":0,"correct":0})
+    for k,v in defaults.items():
+        if k not in st.session_state:
+            st.session_state[k] = v
 
 init()
 
 # =========================
-# UI
+# スタイル
 # =========================
 st.markdown("""
 <style>
-html, body, .stApp {
-    background-color: #0e1117 !important;
-    color: white !important;
+.stApp {
+    background-color: #0e1117;
+    color: white;
 }
-.card {
-    background-color: #1c1f26;
-    padding: 20px;
-    border-radius: 12px;
-}
-.stButton button {
-    width: 100%;
-    border-radius: 10px;
+button {
+    border-radius: 10px !important;
 }
 </style>
 """, unsafe_allow_html=True)
+
+# =========================
+# ユーティリティ
+# =========================
+def safe_json_parse(text):
+    try:
+        return json.loads(text)
+    except:
+        return None
+
+def validate(data):
+    if not isinstance(data, dict):
+        return False
+    keys = ["question","choices","answer","explanation","evidence"]
+    for k in keys:
+        if k not in data:
+            return False
+    if len(data["choices"]) != 4:
+        return False
+    if data["answer"] not in ["A","B","C","D"]:
+        return False
+    return True
+
+# =========================
+# 問題生成（強化版）
+# =========================
+def generate_problem(cat):
+
+    prompt = f"""
+知的財産管理技能検定2級
+
+分野:{cat}
+
+・4択
+・1つだけ正解
+・選択肢の難易度を揃える
+・「最も適切」または「__不適切__」
+
+JSONのみで出力
+"""
+
+    for _ in range(3):
+
+        res = client.chat.completions.create(
+            model="gpt-5.4-nano",
+            messages=[{"role":"user","content":prompt}]
+        )
+
+        data = safe_json_parse(res.choices[0].message.content)
+
+        if not data or not validate(data):
+            continue
+
+        choices = data["choices"]
+        random.shuffle(choices)
+
+        labels = ["A","B","C","D"]
+
+        data["choices"] = [f"{labels[i]}. {choices[i]}" for i in range(4)]
+
+        if data["answer"] not in labels:
+            continue
+
+        return data
+
+    return {
+        "question":"生成失敗",
+        "choices":["A. -","B. -","C. -","D. -"],
+        "answer":"A",
+        "explanation":"エラー",
+        "evidence":""
+    }
+
+# =========================
+# 回答処理
+# =========================
+def submit_answer(choice):
+
+    d = st.session_state.current
+
+    st.session_state.answered = True
+
+    if choice and choice.startswith(d["answer"]):
+        st.session_state.result = "correct"
+    else:
+        st.session_state.result = "wrong"
+        st.session_state.wrong_questions.append(d)
+
+    st.session_state.practice_stats[d["cat"]]["total"] += 1
+
+    if st.session_state.result == "correct":
+        st.session_state.practice_stats[d["cat"]]["correct"] += 1
+
+# =========================
+# 模試
+# =========================
+def start_exam():
+
+    weighted = (
+        ["特許・実用新案"] * 10 +
+        ["商標"] * 8 +
+        ["意匠"] * 6 +
+        ["著作権"] * 6 +
+        ["条約"] * 4 +
+        ["その他"] * 6
+    )
+
+    random.shuffle(weighted)
+
+    st.session_state.exam_questions = [
+        generate_problem(c) for c in weighted
+    ]
+
+    st.session_state.exam_index = 0
+    st.session_state.exam_answers = []
+    st.session_state.exam_done = False
+    st.session_state.exam_start = time.time()
+
+def submit_exam():
+
+    correct = 0
+    stats = defaultdict(lambda: {"total":0,"correct":0})
+
+    for q, a in zip(st.session_state.exam_questions, st.session_state.exam_answers):
+
+        stats[q.get("cat","その他")]["total"] += 1
+
+        if a == q["answer"]:
+            correct += 1
+            stats[q.get("cat","その他")]["correct"] += 1
+        else:
+            st.session_state.wrong_questions.append(q)
+
+    rate = correct / 40 * 100
+
+    st.session_state.exam_result = {
+        "score": correct,
+        "rate": rate,
+        "stats": stats
+    }
+
+    st.session_state.exam_done = True
 
 # =========================
 # ナビ
@@ -72,134 +203,12 @@ def select_category(cat):
     st.session_state.show_category = False
 
 # =========================
-# 問題生成
+# UI
 # =========================
-def generate_problem(cat):
 
-    prompt = f"""
-知的財産管理技能検定2級（学科）
-
-分野:{cat}
-
-必ず守る：
-・4択
-・1つだけ明確に正解
-・選択肢のレベルは同一
-・設問は「最も適切」または「__不適切__」
-・不適切の場合は「不適切」に下線をつける
-
-JSON：
-{{
- "question":"",
- "choices":["A...","B...","C...","D..."],
- "answer":"A",
- "explanation":"",
- "evidence":""
-}}
-"""
-
-    while True:
-        res = client.chat.completions.create(
-            model="gpt-5.4-nano",
-            messages=[{"role":"user","content":prompt}]
-        )
-        try:
-            data = json.loads(res.choices[0].message.content)
-
-            # ▼ answerの偏り対策（A固定防止）
-            choices = data["choices"]
-            random.shuffle(choices)
-
-            correct = data["answer"]
-            data["choices"] = choices
-
-            for c in choices:
-                if c.startswith(correct):
-                    data["answer"] = c[0]
-
-            return data
-
-        except:
-            continue
-
-# =========================
-# 回答処理
-# =========================
-def submit_answer(choice):
-    d = st.session_state.current
-
-    st.session_state.answered = True
-    st.session_state.practice_stats[d["cat"]]["total"] += 1
-
-    if choice[0] == d["answer"]:
-        st.session_state.practice_stats[d["cat"]]["correct"] += 1
-        st.session_state.result = "correct"
-    else:
-        st.session_state.result = "wrong"
-        st.session_state.wrong_questions.append(d)
-
-# =========================
-# 模試開始
-# =========================
-def start_exam():
-
-    weighted = (
-        ["特許・実用新案"] * 10 +
-        ["商標"] * 8 +
-        ["意匠"] * 6 +
-        ["著作権"] * 6 +
-        ["条約"] * 4 +
-        ["その他"] * 6
-    )
-
-    random.shuffle(weighted)
-
-    st.session_state.exam_questions = [generate_problem(c) for c in weighted]
-
-    st.session_state.exam_index = 0
-    st.session_state.exam_answers = []
-    st.session_state.exam_start = time.time()
-    st.session_state.exam_done = False
-    st.session_state.exam_results = []
-
-# =========================
-# 模試採点
-# =========================
-def submit_exam():
-
-    correct = 0
-    results = []
-
-    for q, a in zip(st.session_state.exam_questions, st.session_state.exam_answers):
-        is_correct = (a == q["answer"])
-
-        results.append({
-            "cat": q["cat"],
-            "correct": is_correct
-        })
-
-        if is_correct:
-            correct += 1
-        else:
-            st.session_state.wrong_questions.append(q)
-
-    rate = correct / 40 * 100
-
-    st.session_state.exam_result = {
-        "score": correct,
-        "rate": rate,
-        "pass": rate >= 80,
-        "results": results
-    }
-
-    st.session_state.exam_done = True
-
-# =========================
-# メニュー
-# =========================
 if st.session_state.page == "menu":
 
-    st.title("知財2級AIアプリ(ver.1.7.1)")
+    st.title("知財2級アプリ(ver.1.7.3)")
 
     st.button("問題演習", on_click=go, args=("practice",))
     st.button("模擬試験", on_click=go, args=("exam",))
@@ -212,45 +221,40 @@ elif st.session_state.page == "practice":
 
     st.button("戻る", on_click=go, args=("menu",))
 
-    st.button("分野を選択 ▼", on_click=toggle_category)
+    st.button("分野選択", on_click=toggle_category)
 
     if st.session_state.show_category:
-        categories = [
-            "特許・実用新案","意匠","商標","条約","著作権",
-            "不正競争防止法","民法","独占禁止法",
-            "種苗法","関税法","外為法","弁理士法"
-        ]
-        for c in categories:
+        cats = ["特許・実用新案","意匠","商標","条約","著作権"]
+        for c in cats:
             st.button(c, on_click=select_category, args=(c,))
 
     if st.session_state.selected_category:
-        st.write(f"選択中：{st.session_state.selected_category}")
-        st.button("問題生成", on_click=lambda: st.session_state.update({
-            "current": generate_problem(st.session_state.selected_category),
-            "answered": False
-        }))
+        st.write(st.session_state.selected_category)
+
+        if st.button("問題生成"):
+            st.session_state.current = generate_problem(st.session_state.selected_category)
+            st.session_state.answered = False
 
     if st.session_state.current:
 
-        d = st.session_state.current
+        q = st.session_state.current
 
-        st.markdown('<div class="card">', unsafe_allow_html=True)
-        st.write(d["question"])
-        st.markdown('</div>', unsafe_allow_html=True)
+        st.write(q["question"])
 
-        choice = st.radio("", d["choices"])
+        choice = st.radio("", q["choices"])
 
-        st.button("回答", on_click=submit_answer, args=(choice,))
+        if st.button("回答"):
+            submit_answer(choice)
 
         if st.session_state.answered:
 
             if st.session_state.result == "correct":
-                st.success("正解！")
+                st.success("正解")
             else:
-                st.error(f"不正解（正解：{d['answer']}）")
+                st.error(f"不正解（正解：{q['answer']}）")
 
-            st.info(d["explanation"])
-            st.write(d["evidence"])
+            st.write(q["explanation"])
+            st.write(q["evidence"])
 
 # =========================
 # 模試
@@ -259,18 +263,10 @@ elif st.session_state.page == "exam":
 
     st.button("戻る", on_click=go, args=("menu",))
 
-    if "exam_questions" not in st.session_state:
+    if st.session_state.exam_questions is None:
         st.button("試験開始", on_click=start_exam)
 
-    if "exam_questions" in st.session_state:
-
-        elapsed = time.time() - st.session_state.exam_start
-        remaining = 3600 - elapsed
-
-        st.write(f"残り時間：{int(remaining//60)}分")
-
-        if remaining <= 0 and not st.session_state.exam_done:
-            submit_exam()
+    else:
 
         if not st.session_state.exam_done:
 
@@ -282,40 +278,23 @@ elif st.session_state.page == "exam":
 
             choice = st.radio("", q["choices"], key=i)
 
-            if st.button("回答して次へ"):
+            if st.button("次へ"):
                 st.session_state.exam_answers.append(choice[0])
                 st.session_state.exam_index += 1
 
                 if st.session_state.exam_index >= 40:
                     submit_exam()
 
-                else:
-                    st.session_state.current_exam_q = None
-
         else:
+
             r = st.session_state.exam_result
 
-            st.success(f"得点：{r['score']}/40")
-            st.write(f"正答率：{r['rate']}%")
+            st.success(f"{r['score']}/40")
+            st.write(f"{r['rate']}%")
 
-            if r["pass"]:
-                st.success("合格！")
-            else:
-                st.error("不合格")
-
-            # 分野別正答率
-            stats = defaultdict(lambda: {"total":0,"correct":0})
-
-            for res in r["results"]:
-                stats[res["cat"]]["total"] += 1
-                if res["correct"]:
-                    stats[res["cat"]]["correct"] += 1
-
-            st.write("分野別正答率")
-
-            for cat, v in stats.items():
-                rate = v["correct"] / v["total"] * 100
-                st.write(f"{cat}: {v['correct']}/{v['total']} ({rate:.1f}%)")
+            for cat, v in r["stats"].items():
+                rate = v["correct"]/v["total"]*100
+                st.write(f"{cat}: {rate:.1f}%")
 
 # =========================
 # 復習
@@ -324,18 +303,11 @@ elif st.session_state.page == "review":
 
     st.button("戻る", on_click=go, args=("menu",))
 
-    st.title("復習（間違えた問題）")
-
     if not st.session_state.wrong_questions:
-        st.write("まだ間違いはありません")
+        st.write("なし")
     else:
         for q in st.session_state.wrong_questions:
-
-            st.markdown("---")
-            st.write(f"【{q['cat']}】{q['question']}")
-
+            st.write(q["question"])
             for c in q["choices"]:
                 st.write(c)
-
-            st.write(f"正解：{q['answer']}")
-            st.write(q["explanation"])
+            st.write(q["answer"])
