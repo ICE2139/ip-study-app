@@ -4,25 +4,34 @@ import random
 
 client = OpenAI()
 
-# --- 完全ライトモード（白背景＋黒文字強制） ---
+# --- 完全ダークモード ---
 st.markdown("""
 <style>
 body {
-    background-color: white;
+    background-color: #0e1117;
+    color: white;
 }
 
 .stApp {
-    background-color: white;
+    background-color: #0e1117;
 }
 
-/* 全テキスト黒 */
+/* 全テキスト白 */
 html, body, [class*="css"] {
-    color: black !important;
+    color: white !important;
 }
 
-/* ラベル・ボタン */
-label, .stRadio label, .stButton button {
-    color: black !important;
+/* ボタンの見やすさ改善 */
+.stButton button {
+    background-color: #262730;
+    color: white !important;
+    border-radius: 8px;
+    padding: 8px 16px;
+}
+
+/* ラジオボタン */
+.stRadio label {
+    color: white !important;
 }
 </style>
 """, unsafe_allow_html=True)
@@ -135,7 +144,7 @@ if st.session_state.problem:
         else:
             st.error(f"不正解 ❌ 正解は {st.session_state.answer}")
 
-    # --- 解説表示（回答後のみ） ---
+    # --- 解説（回答後のみ） ---
     if st.session_state.answered:
         st.write("【解説】")
         st.write(st.session_state.explanation)
