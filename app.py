@@ -50,7 +50,7 @@ CATEGORIES = [
 ]
 
 # =========================
-# JSON安全パース
+# JSONパース
 # =========================
 def safe_json(text):
     try:
@@ -59,23 +59,26 @@ def safe_json(text):
         return None
 
 # =========================
-# 問題生成（安定版）
+# 問題生成（日本前提は内部のみ）
 # =========================
 def generate_problem(cat):
 
     prompt = f"""
-知財2級試験問題
+あなたは日本の知的財産試験の問題作成者である。
 
 分野:{cat}
 
-制約:
-・必ず「唯一の正解」
-・曖昧禁止
-・比較・順位問題は禁止
-・選択肢は完全に一意に判別可能にする
-・「最も」などの曖昧語は禁止
+【内部前提】
+・日本の法律を前提にする（問題文には書かない）
+・日本の試験問題として自然にする
 
-形式:
+【重要制約】
+・必ず唯一の正解
+・曖昧禁止
+・比較・順位禁止
+・選択肢は一意に判別可能
+
+【出力形式】
 {{
 "question":"",
 "choices":["","","",""],
@@ -98,7 +101,7 @@ def generate_problem(cat):
             if not data:
                 continue
 
-            # 選択肢補正（短すぎ防止）
+            # 選択肢補強
             fixed = []
             for c in data["choices"]:
                 if len(c) < 20:
@@ -130,7 +133,7 @@ def generate_problem(cat):
     }
 
 # =========================
-# タイマー（70分 + 赤警告）
+# タイマー（70分）
 # =========================
 def show_timer():
 
@@ -165,7 +168,7 @@ def show_timer():
     """, unsafe_allow_html=True)
 
 # =========================
-# 回答処理（問題演習）
+# 回答処理（演習）
 # =========================
 def submit_answer(choice):
 
@@ -201,7 +204,6 @@ def next_exam(choice):
 
     q = st.session_state.current_exam
 
-    # 生成失敗はカウントしない
     if not q or q["question"] == "生成失敗":
         st.session_state.current_exam = generate_problem(random.choice(CATEGORIES))
         return
@@ -217,7 +219,6 @@ def next_exam(choice):
         st.session_state.wrong_questions.append({"data":q,"mode":"exam"})
 
     st.session_state.exam_answers.append(choice[0])
-
     st.session_state.exam_index += 1
 
     if st.session_state.exam_valid_count >= 40:
@@ -239,7 +240,7 @@ def select(cat):
 # =========================
 if st.session_state.page == "menu":
 
-    st.title("知財2級学科AIサイト(ver.1.7.7)")
+    st.title("知財2級学科AIサイト(ver.1.7.8)")
 
     st.button("問題演習", on_click=go, args=("practice",))
     st.button("模擬試験", on_click=go, args=("exam",))
@@ -251,14 +252,15 @@ if st.session_state.page == "menu":
 elif st.session_state.page == "practice":
 
     st.button("戻る", on_click=go, args=("menu",))
-
     st.button("分野選択", on_click=toggle)
 
     if st.session_state.show_category:
         for c in CATEGORIES:
             st.button(c, on_click=select, args=(c,))
 
+    # 分野表示
     if st.session_state.selected_category:
+        st.markdown(f"### 📘 分野：{st.session_state.selected_category}")
 
         if st.button("問題生成"):
             st.session_state.current = generate_problem(st.session_state.selected_category)
