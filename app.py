@@ -29,7 +29,7 @@ html, body, [class*="css"] {
 </style>
 """, unsafe_allow_html=True)
 
-st.title("知財2級AI問題")
+st.title("知財2級AI問題アプリ（ver.1.3.7)")
 
 # --- 分野 ---
 categories = [
@@ -57,44 +57,56 @@ def generate_problem(main):
     problem_type = random.choice(["適切", "不適切"])
 
     prompt = f"""
-    知的財産管理技能検定2級【学科試験形式】の問題を1問作成してください。
+知的財産管理技能検定2級【学科試験形式】の問題を1問作成してください。
 
-    分野: {main}
+分野: {main}
 
-    問題形式：
-    ・「最も{problem_type}なもの」を選ばせる問題
+問題形式：
+・「最も{problem_type}なもの」を選ばせる問題
 
-    条件：
-    ・四択問題
-    ・実務ではなく知識問題
-    ・ひっかけ: {trick}
-    ・試験風
-    ・簡潔
-    ・選択肢はA〜D
+【最重要ルール】
+■ 不適切問題の場合：
+・正しい選択肢を3つ作る
+・誤りは1つだけにする（絶対）
+・誤りは「明らかな間違い」にしないこと
+・他の選択肢と同じテーマ・同じレベルで作ること
+・一見正しそうだが、論点が1つだけズレている内容にすること
 
-    ・必ず「根拠」を付けること
-      → 条文番号 or 判例 or 趣旨
+■ 適切問題の場合：
+・正しい選択肢は1つだけ
+・他はすべて誤り
+・誤りは極端すぎず、紛らわしいものにすること
 
-    出力形式（厳守）：
+条件：
+・四択問題
+・知識問題（実務NG）
+・ひっかけ: {trick}
+・試験風で簡潔
+・選択肢はA〜D
 
-    【問題】
-    （問題文）
+・必ず「根拠」を付けること
+→ 条文番号 / 判例 / 制度趣旨
 
-    【選択肢】
-    A. ...
-    B. ...
-    C. ...
-    D. ...
+出力形式（厳守）：
 
-    【正解】
-    A
+【問題】
+（問題文）
 
-    【解説】
-    （簡潔）
+【選択肢】
+A. ...
+B. ...
+C. ...
+D. ...
 
-    【根拠】
-    （条文など）
-    """
+【正解】
+A
+
+【解説】
+（簡潔）
+
+【根拠】
+（条文など）
+"""
 
     res = client.chat.completions.create(
         model="gpt-5.4-nano",
@@ -104,7 +116,7 @@ def generate_problem(main):
     return res.choices[0].message.content, problem_type
 
 
-# --- 生成ボタン ---
+# --- 問題生成 ---
 if st.button("問題生成"):
 
     raw, problem_type = generate_problem(main_category)
@@ -127,13 +139,12 @@ if st.button("問題生成"):
         st.session_state.answered = False
 
     except:
-        st.error("問題の生成に失敗しました。もう一度試してください。")
+        st.error("問題生成失敗。再試行してくれ。")
 
 
-# --- 問題表示 ---
+# --- 表示 ---
 if st.session_state.problem:
 
-    # --- 問題形式表示（ここが進化ポイント） ---
     if st.session_state.problem_type == "不適切":
         st.markdown("【問題形式】最も <b><u>不適切</u></b> なものを選べ", unsafe_allow_html=True)
     else:
@@ -147,7 +158,6 @@ if st.session_state.problem:
         key="choice"
     )
 
-    # --- 回答 ---
     if st.button("回答する"):
 
         st.session_state.answered = True
@@ -159,7 +169,6 @@ if st.session_state.problem:
         else:
             st.error(f"不正解 ❌ 正解は {st.session_state.answer}")
 
-    # --- 回答後のみ表示 ---
     if st.session_state.answered:
 
         st.write("【解説】")
