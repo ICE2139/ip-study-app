@@ -4,6 +4,7 @@ import json
 import time
 import random
 from collections import defaultdict
+from streamlit_autorefresh import st_autorefresh
 
 client = OpenAI()
 
@@ -59,33 +60,21 @@ def safe_json(text):
         return None
 
 # =========================
-# 学科用問題生成（重要）
+# 問題生成（安定）
 # =========================
 def generate_problem(cat):
 
     prompt = f"""
-あなたは知的財産管理技能検定2級の出題者である。
-
 分野：{cat}
 
-【問題の種類】
-学科試験（知識確認・択一問題）
+学科試験の問題を作成せよ。
 
-【出題形式】
-・「正しいものはどれか」または「誤っているものはどれか」
-・必ず1つだけ正解
+条件：
+・択一問題（必ず1つ正解）
+・「正しいものはどれか」or「誤っているものはどれか」
+・知識問題（条文・制度）
 
-【特徴】
-・条文・制度ベース
-・シンプルな判断問題
-・短文で明確
-
-【禁止】
-・実務的ケース問題
-・複数判断が必要な問題
-・曖昧な選択肢
-
-【出力】
+出力JSON：
 {{
 "question":"",
 "choices":["","","",""],
@@ -107,13 +96,25 @@ def generate_problem(cat):
             if not data:
                 continue
 
+            # ---- 正解追従シャッフル（重要修正） ----
+            labels = ["A","B","C","D"]
+
+            correct_text = data["choices"][0] if data["answer"] == "A" else None
+
             random.shuffle(data["choices"])
 
-            labels = ["A","B","C","D"]
-            data["choices"] = [f"{labels[i]}. {data['choices'][i]}" for i in range(4)]
+            new_choices = {}
+            for i, c in enumerate(data["choices"]):
+                new_choices[labels[i]] = c
 
-            if data["answer"] not in labels:
-                continue
+            # 正解の位置を再判定
+            if correct_text:
+                for k,v in new_choices.items():
+                    if v == correct_text:
+                        data["answer"] = k
+                        break
+
+            data["choices"] = [f"{k}. {v}" for k,v in new_choices.items()]
 
             data["cat"] = cat
 
@@ -132,9 +133,12 @@ def generate_problem(cat):
     }
 
 # =========================
-# タイマー（位置修正）
+# タイマー（リアルタイム）
 # =========================
 def show_timer():
+
+    # 1秒ごとに自動更新（これが重要）
+    st_autorefresh(interval=1000, key="timer_refresh")
 
     if not st.session_state.exam_start:
         return
@@ -171,7 +175,7 @@ def show_timer():
     """, unsafe_allow_html=True)
 
 # =========================
-# 回答処理
+# 回答
 # =========================
 def submit_answer(choice):
 
@@ -202,7 +206,8 @@ def next_exam(choice):
 
     q = st.session_state.current_exam
 
-    if not q or q["question"] == "生成失敗":
+    # 失敗問題はスキップ（重要）
+    if q["question"] == "生成失敗":
         st.session_state.current_exam = generate_problem(random.choice(CATEGORIES))
         return
 
@@ -225,7 +230,7 @@ def next_exam(choice):
         st.session_state.current_exam = generate_problem(random.choice(CATEGORIES))
 
 # =========================
-# UI
+# UI操作
 # =========================
 def go(p): st.session_state.page = p
 def toggle(): st.session_state.show_category = not st.session_state.show_category
@@ -238,7 +243,7 @@ def select(cat):
 # =========================
 if st.session_state.page == "menu":
 
-    st.title("知財2級学科AIサイト(ver.1.7.11)")
+    st.title("知財2級学科AIサイト(ver.1.7.12)")
 
     st.button("問題演習", on_click=go, args=("practice",))
     st.button("模擬試験", on_click=go, args=("exam",))
@@ -257,7 +262,7 @@ elif st.session_state.page == "practice":
             st.button(c, on_click=select, args=(c,))
 
     if st.session_state.selected_category:
-        st.markdown(f"### 📘 {st.session_state.selected_category}")
+        st.write(f"### 📘 {st.session_state.selected_category}")
 
         if st.button("問題生成"):
             st.session_state.current = generate_problem(st.session_state.selected_category)
@@ -348,7 +353,6 @@ elif st.session_state.page == "review":
                 st.success("正解")
                 st.session_state.wrong_questions.pop(0)
                 st.rerun()
-
             else:
                 st.error(f"不正解（正解：{q['answer']}）")
                 st.write(q["explanation"])
