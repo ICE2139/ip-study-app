@@ -4,15 +4,25 @@ import random
 
 client = OpenAI()
 
-# --- ライトモード（白背景） ---
+# --- 完全ライトモード（白背景＋黒文字強制） ---
 st.markdown("""
 <style>
 body {
     background-color: white;
-    color: black;
 }
+
 .stApp {
     background-color: white;
+}
+
+/* 全テキスト黒 */
+html, body, [class*="css"] {
+    color: black !important;
+}
+
+/* ラベル・ボタン */
+label, .stRadio label, .stButton button {
+    color: black !important;
 }
 </style>
 """, unsafe_allow_html=True)
@@ -78,8 +88,9 @@ if "problem" not in st.session_state:
     st.session_state.answer = None
     st.session_state.explanation = None
     st.session_state.choices = None
+    st.session_state.answered = False
 
-# --- 問題生成ボタン ---
+# --- 問題生成 ---
 if st.button("問題生成"):
 
     raw = generate_problem(main_category)
@@ -96,10 +107,10 @@ if st.button("問題生成"):
         st.session_state.choices = choices
         st.session_state.answer = answer
         st.session_state.explanation = explanation
+        st.session_state.answered = False
 
     except:
         st.error("問題の生成に失敗しました。もう一度試してください。")
-
 
 # --- 問題表示 ---
 if st.session_state.problem:
@@ -115,6 +126,8 @@ if st.session_state.problem:
     # --- 回答 ---
     if st.button("回答する"):
 
+        st.session_state.answered = True
+
         selected = user_choice[0]
 
         if selected == st.session_state.answer:
@@ -122,5 +135,7 @@ if st.session_state.problem:
         else:
             st.error(f"不正解 ❌ 正解は {st.session_state.answer}")
 
+    # --- 解説表示（回答後のみ） ---
+    if st.session_state.answered:
         st.write("【解説】")
         st.write(st.session_state.explanation)
