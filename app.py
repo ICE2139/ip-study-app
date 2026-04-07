@@ -13,8 +13,8 @@ client = OpenAI()
 def init():
     defaults = {
         "page":"menu",
-        "show_category":False,
         "selected_category":None,
+        "show_category":False,
 
         "current":None,
         "answered":False,
@@ -23,12 +23,11 @@ def init():
         "wrong_questions":[],
 
         # 模試
+        "exam_questions":[],
         "exam_index":0,
         "exam_done":False,
         "exam_start":None,
-        "exam_stats":defaultdict(lambda: {"total":0,"correct":0}),
-        "current_exam":None,
-        "exam_valid_count":0
+        "exam_stats":defaultdict(lambda: {"total":0,"correct":0})
     }
 
     for k,v in defaults.items():
@@ -47,22 +46,17 @@ CATEGORIES = [
 ]
 
 # =========================
-# 問題生成（安定版）
+# 問題生成
 # =========================
 def generate_problem(cat):
 
     prompt = f"""
 分野：{cat}
 
-学科試験の択一問題を作成せよ。
+択一問題を1問作成。
+必ず正解は1つ。
 
-条件：
-・4択
-・必ず1つだけ正解
-・知識問題
-・簡潔
-
-JSON：
+JSON:
 {{
 "question":"",
 "choices":["","","",""],
@@ -72,47 +66,43 @@ JSON：
 }}
 """
 
-    for _ in range(3):
-        try:
-            res = client.chat.completions.create(
-                model="gpt-5.4-nano",
-                messages=[{"role":"user","content":prompt}],
-                response_format={"type":"json_object"}
-            )
+    try:
+        res = client.chat.completions.create(
+            model="gpt-5.4-nano",
+            messages=[{"role":"user","content":prompt}],
+            response_format={"type":"json_object"}
+        )
 
-            data = json.loads(res.choices[0].message.content)
+        data = json.loads(res.choices[0].message.content)
 
-            # -------- 正解固定（重要）--------
-            correct = data["choices"][0]
+        correct = data["choices"][0]
 
-            labels = ["A","B","C","D"]
-            random.shuffle(data["choices"])
+        labels = ["A","B","C","D"]
+        random.shuffle(data["choices"])
 
-            mapping = dict(zip(labels, data["choices"]))
+        mapping = dict(zip(labels, data["choices"]))
 
-            for k,v in mapping.items():
-                if v == correct:
-                    data["answer"] = k
+        for k,v in mapping.items():
+            if v == correct:
+                data["answer"] = k
 
-            data["choices"] = [f"{k}. {v}" for k,v in mapping.items()]
-            data["cat"] = cat
+        data["choices"] = [f"{k}. {v}" for k,v in mapping.items()]
+        data["cat"] = cat
 
-            return data
+        return data
 
-        except:
-            continue
-
-    return {
-        "cat":cat,
-        "question":"生成失敗",
-        "choices":["A.-","B.-","C.-","D.-"],
-        "answer":"A",
-        "explanation":"生成失敗",
-        "evidence":""
-    }
+    except:
+        return {
+            "cat":cat,
+            "question":"生成失敗",
+            "choices":["A.-","B.-","C.-","D.-"],
+            "answer":"A",
+            "explanation":"失敗",
+            "evidence":""
+        }
 
 # =========================
-# タイマー（リアルタイム）
+# タイマー（表示のみ）
 # =========================
 def show_timer():
 
@@ -138,11 +128,11 @@ def show_timer():
     right:20px;
     background:#000;
     color:{color};
-    padding:12px 18px;
-    border-radius:10px;
-    font-size:20px;
+    padding:10px 14px;
+    border-radius:8px;
+    font-size:18px;
     font-weight:bold;
-    border:2px solid {color};
+    border:1px solid {color};
     z-index:9999;
     ">
     ⏰ {m:02d}:{s:02d}
@@ -150,50 +140,28 @@ def show_timer():
     """, unsafe_allow_html=True)
 
 # =========================
-# 自動再描画（軽量）
-# =========================
-def auto_refresh():
-    if st.session_state.page == "exam" and not st.session_state.exam_done:
-        time.sleep(1)
-        st.rerun()
-
-# =========================
-# 回答処理
-# =========================
-def submit_answer(choice):
-
-    q = st.session_state.current
-    st.session_state.answered = True
-
-    if choice and choice.startswith(q["answer"]):
-        st.session_state.result = "correct"
-    else:
-        st.session_state.result = "wrong"
-        st.session_state.wrong_questions.append({"data":q,"mode":"practice"})
-
-# =========================
-# 模試
+# 模試（事前生成）
 # =========================
 def start_exam():
+
+    st.session_state.exam_questions = []
+
+    for _ in range(40):
+        q = generate_problem(random.choice(CATEGORIES))
+        st.session_state.exam_questions.append(q)
 
     st.session_state.exam_index = 0
     st.session_state.exam_done = False
     st.session_state.exam_start = time.time()
-    st.session_state.exam_valid_count = 0
-
-    st.session_state.current_exam = generate_problem(random.choice(CATEGORIES))
+    st.session_state.exam_stats = defaultdict(lambda: {"total":0,"correct":0})
 
 def next_exam(choice):
 
-    q = st.session_state.current_exam
-
-    if q["question"] == "生成失敗":
-        return
+    q = st.session_state.exam_questions[st.session_state.exam_index]
 
     cat = q["cat"]
 
     st.session_state.exam_stats[cat]["total"] += 1
-    st.session_state.exam_valid_count += 1
 
     if choice and choice.startswith(q["answer"]):
         st.session_state.exam_stats[cat]["correct"] += 1
@@ -202,17 +170,15 @@ def next_exam(choice):
 
     st.session_state.exam_index += 1
 
-    if st.session_state.exam_valid_count >= 40:
+    if st.session_state.exam_index >= len(st.session_state.exam_questions):
         st.session_state.exam_done = True
-    else:
-        st.session_state.current_exam = generate_problem(random.choice(CATEGORIES))
 
 # =========================
-# UI操作
+# UI
 # =========================
 def go(p): st.session_state.page = p
 
-def toggle_category():
+def toggle():
     st.session_state.show_category = not st.session_state.show_category
 
 def select(cat):
@@ -224,7 +190,7 @@ def select(cat):
 # =========================
 if st.session_state.page == "menu":
 
-    st.title("知財2級学科AIサイト(ver.1.7.15)")
+    st.title("知財2級学科AIサイト(ver.1.7.16)")
 
     st.button("問題演習", on_click=go, args=("practice",))
     st.button("模擬試験", on_click=go, args=("exam",))
@@ -237,16 +203,16 @@ elif st.session_state.page == "practice":
 
     st.button("戻る", on_click=go, args=("menu",))
 
-    st.button("分野選択", on_click=toggle_category)
+    st.button("分野選択", on_click=toggle)
 
     if st.session_state.show_category:
         for c in CATEGORIES:
             if st.button(c):
                 select(c)
-                st.rerun()
 
     if st.session_state.selected_category:
-        st.write(f"### {st.session_state.selected_category}")
+
+        st.write(st.session_state.selected_category)
 
         if st.button("問題生成"):
             st.session_state.current = generate_problem(st.session_state.selected_category)
@@ -261,11 +227,9 @@ elif st.session_state.page == "practice":
         choice = st.radio("", q["choices"])
 
         if st.button("回答"):
-            submit_answer(choice)
+            st.session_state.answered = True
 
-        if st.session_state.answered:
-
-            if st.session_state.result == "correct":
+            if choice and choice.startswith(q["answer"]):
                 st.success(f"正解（{q['answer']}）")
             else:
                 st.error(f"不正解（正解：{q['answer']}）")
@@ -279,16 +243,15 @@ elif st.session_state.page == "practice":
 elif st.session_state.page == "exam":
 
     show_timer()
-    auto_refresh()
 
     st.button("戻る", on_click=go, args=("menu",))
 
-    if st.session_state.current_exam is None:
+    if not st.session_state.exam_questions:
         st.button("試験開始", on_click=start_exam)
 
     elif not st.session_state.exam_done:
 
-        q = st.session_state.current_exam
+        q = st.session_state.exam_questions[st.session_state.exam_index]
 
         st.write(f"Q{st.session_state.exam_index+1}/40")
 
@@ -297,11 +260,15 @@ elif st.session_state.page == "exam":
         choice = st.radio("", q["choices"], key=st.session_state.exam_index)
 
         if st.button("次へ"):
+
             next_exam(choice)
+
+            st.rerun()
 
     else:
 
         total = sum(v["correct"] for v in st.session_state.exam_stats.values())
+
         st.success(f"{total}/40")
 
 # =========================
