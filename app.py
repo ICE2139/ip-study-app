@@ -4,7 +4,7 @@ import random
 
 client = OpenAI()
 
-# --- 完全ダークモード ---
+# --- ダークモード ---
 st.markdown("""
 <style>
 body {
@@ -16,12 +16,10 @@ body {
     background-color: #0e1117;
 }
 
-/* 全テキスト白 */
 html, body, [class*="css"] {
     color: white !important;
 }
 
-/* ボタンの見やすさ改善 */
 .stButton button {
     background-color: #262730;
     color: white !important;
@@ -29,14 +27,13 @@ html, body, [class*="css"] {
     padding: 8px 16px;
 }
 
-/* ラジオボタン */
 .stRadio label {
     color: white !important;
 }
 </style>
 """, unsafe_allow_html=True)
 
-st.title("知財2級AI問題アプリ")
+st.title("知財2級AI問題アプリ（根拠付き）")
 
 # --- 分野 ---
 categories = [
@@ -59,11 +56,15 @@ def generate_problem(main):
 
     条件：
     ・四択問題
-    ・実務ではなく純粋な知識問題
+    ・実務ではなく知識問題
     ・ひっかけ: {trick}
-    ・試験っぽい文章
-    ・簡潔で明確
-    ・選択肢は必ずA〜D
+    ・試験風
+    ・簡潔
+    ・選択肢はA〜D
+
+    ・必ず「根拠」を付けること
+      → 条文番号 or 判例 or 趣旨説明
+      → 信頼できる形
 
     出力形式（厳守）：
 
@@ -80,7 +81,10 @@ def generate_problem(main):
     A
 
     【解説】
-    （簡潔に）
+    （簡潔）
+
+    【根拠】
+    （例：特許法第29条など、条文や理由）
     """
 
     res = client.chat.completions.create(
@@ -97,6 +101,7 @@ if "problem" not in st.session_state:
     st.session_state.answer = None
     st.session_state.explanation = None
     st.session_state.choices = None
+    st.session_state.evidence = None
     st.session_state.answered = False
 
 # --- 問題生成 ---
@@ -108,7 +113,8 @@ if st.button("問題生成"):
         question = raw.split("【選択肢】")[0]
         choices_part = raw.split("【選択肢】")[1].split("【正解】")[0]
         answer = raw.split("【正解】")[1].split("【解説】")[0].strip()
-        explanation = raw.split("【解説】")[1]
+        explanation = raw.split("【解説】")[1].split("【根拠】")[0]
+        evidence = raw.split("【根拠】")[1]
 
         choices = [c.strip() for c in choices_part.split("\n") if c.strip()]
 
@@ -116,12 +122,13 @@ if st.button("問題生成"):
         st.session_state.choices = choices
         st.session_state.answer = answer
         st.session_state.explanation = explanation
+        st.session_state.evidence = evidence
         st.session_state.answered = False
 
     except:
         st.error("問題の生成に失敗しました。もう一度試してください。")
 
-# --- 問題表示 ---
+# --- 表示 ---
 if st.session_state.problem:
 
     st.write(st.session_state.problem)
@@ -144,7 +151,11 @@ if st.session_state.problem:
         else:
             st.error(f"不正解 ❌ 正解は {st.session_state.answer}")
 
-    # --- 解説（回答後のみ） ---
+    # --- 回答後のみ表示 ---
     if st.session_state.answered:
+
         st.write("【解説】")
         st.write(st.session_state.explanation)
+
+        st.write("【根拠】")
+        st.info(st.session_state.evidence)
