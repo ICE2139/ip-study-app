@@ -50,7 +50,7 @@ CATEGORIES = [
 ]
 
 # =========================
-# JSON安全
+# JSON
 # =========================
 def safe_json(text):
     try:
@@ -59,22 +59,33 @@ def safe_json(text):
         return None
 
 # =========================
-# 問題生成（簡潔＋日本前提は内部のみ）
+# 試験風問題生成（強化版）
 # =========================
 def generate_problem(cat):
 
     prompt = f"""
-分野:{cat}
+あなたは「知的財産管理技能検定2級」の出題者である。
 
-日本の知財試験問題として作成（日本前提は内部処理のみ）
+分野：{cat}
 
-制約：
-・唯一の正解
-・曖昧禁止
-・比較禁止
-・選択肢は一意に判別可能
+【目的】
+本試験レベルの問題を作成する
 
-出力形式：
+【特徴】
+・条文・制度・判例ベース
+・実務判断を問う
+・1つだけ明確に正解
+
+【禁止】
+・曖昧
+・複数正解
+・単純知識のみ
+
+【選択肢】
+・すべて自然な文章
+・紛らわしいが1つだけ正解
+
+【出力】
 {{
 "question":"",
 "choices":["","","",""],
@@ -96,11 +107,11 @@ def generate_problem(cat):
             if not data:
                 continue
 
-            # 選択肢補強
+            # 選択肢整形
             fixed = []
             for c in data["choices"]:
                 if len(c) < 20:
-                    c += "（条件あり）"
+                    c += "（条件付き）"
                 fixed.append(c)
 
             random.shuffle(fixed)
@@ -123,12 +134,12 @@ def generate_problem(cat):
         "question":"生成失敗",
         "choices":["A.-","B.-","C.-","D.-"],
         "answer":"A",
-        "explanation":"生成に失敗しました。",
+        "explanation":"生成に失敗しました",
         "evidence":""
     }
 
 # =========================
-# タイマー（70分）
+# タイマー（確実に表示）
 # =========================
 def show_timer():
 
@@ -145,25 +156,29 @@ def show_timer():
     m = remaining // 60
     s = remaining % 60
 
-    color = "red" if remaining <= 600 else "white"
+    color = "#ff4b4b" if remaining <= 600 else "#ffffff"
 
     st.markdown(f"""
     <div style="
     position:fixed;
-    top:10px;
+    top:15px;
     right:20px;
-    background:#222;
+    background:#000;
     color:{color};
-    padding:10px;
-    border-radius:8px;
+    padding:12px 20px;
+    border-radius:10px;
+    font-size:22px;
     font-weight:bold;
-    z-index:999;">
+    border:2px solid {color};
+    z-index:9999;
+    box-shadow:0 0 12px {color};
+    ">
     ⏰ {m:02d}:{s:02d}
     </div>
     """, unsafe_allow_html=True)
 
 # =========================
-# 回答（演習）
+# 回答処理（演習）
 # =========================
 def submit_answer(choice):
 
@@ -235,7 +250,7 @@ def select(cat):
 # =========================
 if st.session_state.page == "menu":
 
-    st.title("知財2級学科AIサイト(ver.1.7.9)")
+    st.title("知財2級学科AIサイト(ver.1.7.10)")
 
     st.button("問題演習", on_click=go, args=("practice",))
     st.button("模擬試験", on_click=go, args=("exam",))
