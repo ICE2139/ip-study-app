@@ -1,53 +1,41 @@
 import streamlit as st
 from openai import OpenAI
 import json
-import time
 import random
 from collections import defaultdict
 
 client = OpenAI()
 
 # =========================
-# 初期化（壊れない版）
+# 初期化（安全設計）
 # =========================
 def init():
-    if "page" not in st.session_state:
-        st.session_state.page = "menu"
+    defaults = {
+        "page":"menu",
 
-    if "selected_category" not in st.session_state:
-        st.session_state.selected_category = None
+        # 共通
+        "selected_category":None,
+        "show_category":False,
 
-    if "show_category" not in st.session_state:
-        st.session_state.show_category = False
+        # 問題演習
+        "practice_q":None,
+        "practice_answered":False,
+        "practice_result":None,
 
-    if "current" not in st.session_state:
-        st.session_state.current = None
+        # 復習
+        "wrong_questions":[],
+        "review_index":0,
 
-    if "answered" not in st.session_state:
-        st.session_state.answered = False
+        # 模試
+        "exam_index":0,
+        "exam_q":None,
+        "exam_done":False,
+        "exam_stats":defaultdict(lambda: {"total":0,"correct":0}),
+    }
 
-    if "result" not in st.session_state:
-        st.session_state.result = None
-
-    # ★消えないようにする
-    if "wrong_questions" not in st.session_state:
-        st.session_state.wrong_questions = []
-
-    # 模試
-    if "exam_index" not in st.session_state:
-        st.session_state.exam_index = 0
-
-    if "exam_done" not in st.session_state:
-        st.session_state.exam_done = False
-
-    if "exam_start" not in st.session_state:
-        st.session_state.exam_start = None
-
-    if "exam_stats" not in st.session_state:
-        st.session_state.exam_stats = defaultdict(lambda: {"total":0,"correct":0})
-
-    if "current_exam" not in st.session_state:
-        st.session_state.current_exam = None
+    for k,v in defaults.items():
+        if k not in st.session_state:
+            st.session_state[k] = v
 
 init()
 
@@ -61,62 +49,60 @@ CATEGORIES = [
 ]
 
 # =========================
-# 問題生成（完全安定）
+# 問題生成（安定）
 # =========================
-def generate_problem(cat):
+def clean(text):
+    return text.split(".",1)[-1].strip()
 
-    prompt = f"""
-分野：{cat}
+def generate(cat):
+    try:
+        res = client.chat.completions.create(
+            model="gpt-5.4-nano",
+            messages=[{
+                "role":"user",
+                "content":f"""
+分野:{cat}
+知財2級学科問題を作れ
 
-知財2級 学科試験レベルの択一問題を作成せよ。
-
-条件：
-・必ず正解は1つ
+条件:
 ・4択
-・条文知識中心
-・各選択肢ごとに理由を書く
+・正解1つ
+・選択肢に記号つけるな
+・各選択肢理由書け
 
-JSON：
+JSON:
 {{
 "question":"",
 "choices":["","","",""],
 "answer":"A",
-"choice_explanations":{{
-"A":"","B":"","C":"","D":""
-}}
+"choice_explanations":{{"A":"","B":"","C":"","D":""}}
 }}
 """
-
-    try:
-        res = client.chat.completions.create(
-            model="gpt-5.4-nano",
-            messages=[{"role":"user","content":prompt}],
+            }],
             response_format={"type":"json_object"}
         )
 
         data = json.loads(res.choices[0].message.content)
 
-        correct = data["choices"][0]
+        choices = [clean(c) for c in data["choices"]]
+        correct = choices[0]
 
+        random.shuffle(choices)
         labels = ["A","B","C","D"]
-        random.shuffle(data["choices"])
 
-        mapping = dict(zip(labels, data["choices"]))
-
-        new_explain = {}
-
-        for i, (k,v) in enumerate(mapping.items()):
-            new_explain[k] = data["choice_explanations"][labels[i]]
+        mapping = dict(zip(labels, choices))
 
         for k,v in mapping.items():
             if v == correct:
-                data["answer"] = k
+                answer = k
 
-        data["choices"] = [f"{k}. {v}" for k,v in mapping.items()]
-        data["choice_explanations"] = new_explain
-        data["cat"] = cat
-
-        return data
+        return {
+            "cat":cat,
+            "question":data["question"],
+            "choices":[f"{k}. {v}" for k,v in mapping.items()],
+            "answer":answer,
+            "exp":data["choice_explanations"]
+        }
 
     except:
         return {
@@ -124,107 +110,25 @@ JSON：
             "question":"生成失敗",
             "choices":["A.-","B.-","C.-","D.-"],
             "answer":"A",
-            "choice_explanations":{"A":"-","B":"-","C":"-","D":"-"}
+            "exp":{"A":"-","B":"-","C":"-","D":"-"}
         }
 
 # =========================
-# タイマー（軽量）
-# =========================
-def show_timer():
-    if not st.session_state.exam_start:
-        return
-
-    elapsed = int(time.time() - st.session_state.exam_start)
-    remaining = 70*60 - elapsed
-
-    m = max(0, remaining // 60)
-    s = max(0, remaining % 60)
-
-    color = "#ff4b4b" if remaining <= 600 else "#ffffff"
-
-    st.markdown(f"""
-    <div style="position:fixed;top:80px;right:20px;
-    background:#000;color:{color};
-    padding:10px;border-radius:8px;">
-    ⏰ {m:02d}:{s:02d}
-    </div>
-    """, unsafe_allow_html=True)
-
-# =========================
-# 回答
-# =========================
-def submit_answer(choice):
-
-    q = st.session_state.current
-    st.session_state.answered = True
-
-    if choice and choice.startswith(q["answer"]):
-        st.session_state.result = "correct"
-    else:
-        st.session_state.result = "wrong"
-
-        # ★確実保存
-        st.session_state.wrong_questions.append({
-            "data": q,
-            "mode": "practice"
-        })
-
-# =========================
-# 模試
-# =========================
-def start_exam():
-    st.session_state.exam_index = 0
-    st.session_state.exam_done = False
-    st.session_state.exam_start = time.time()
-    st.session_state.exam_stats = defaultdict(lambda: {"total":0,"correct":0})
-
-    st.session_state.current_exam = generate_problem(random.choice(CATEGORIES))
-
-def next_exam(choice):
-
-    q = st.session_state.current_exam
-
-    if q["question"] == "生成失敗":
-        st.session_state.current_exam = generate_problem(random.choice(CATEGORIES))
-        return
-
-    cat = q["cat"]
-
-    st.session_state.exam_stats[cat]["total"] += 1
-
-    if choice and choice.startswith(q["answer"]):
-        st.session_state.exam_stats[cat]["correct"] += 1
-    else:
-        st.session_state.wrong_questions.append({
-            "data": q,
-            "mode": "exam"
-        })
-
-    st.session_state.exam_index += 1
-
-    if st.session_state.exam_index >= 40:
-        st.session_state.exam_done = True
-    else:
-        st.session_state.current_exam = generate_problem(random.choice(CATEGORIES))
-
-# =========================
-# UI操作
+# 共通UI
 # =========================
 def go(p): st.session_state.page = p
-
-def toggle():
-    st.session_state.show_category = not st.session_state.show_category
 
 def select(cat):
     st.session_state.selected_category = cat
     st.session_state.show_category = False
+    st.rerun()
 
 # =========================
 # メニュー
 # =========================
 if st.session_state.page == "menu":
 
-    st.title("知財2級学科AIサイト(ver.1.7.17)")
+    st.title("知財2級学科AIサイト(ver.1.8.0)")
 
     st.button("問題演習", on_click=go, args=("practice",))
     st.button("模擬試験", on_click=go, args=("exam",))
@@ -236,71 +140,110 @@ if st.session_state.page == "menu":
 elif st.session_state.page == "practice":
 
     st.button("戻る", on_click=go, args=("menu",))
-    st.button("分野選択", on_click=toggle)
+
+    if st.button("分野選択"):
+        st.session_state.show_category = not st.session_state.show_category
 
     if st.session_state.show_category:
         for c in CATEGORIES:
-            if st.button(c):
-                select(c)
+            st.button(c, on_click=select, args=(c,))
 
     if st.session_state.selected_category:
-
         st.write(f"### {st.session_state.selected_category}")
 
         if st.button("問題生成"):
-            st.session_state.current = generate_problem(st.session_state.selected_category)
-            st.session_state.answered = False
+            st.session_state.practice_q = generate(st.session_state.selected_category)
+            st.session_state.practice_answered = False
 
-    if st.session_state.current:
+    if st.session_state.practice_q:
 
-        q = st.session_state.current
-
+        q = st.session_state.practice_q
         st.write(q["question"])
 
         choice = st.radio("", q["choices"])
 
         if st.button("回答"):
-            submit_answer(choice)
+            st.session_state.practice_answered = True
 
-        if st.session_state.answered:
+            if choice.startswith(q["answer"]):
+                st.session_state.practice_result = "ok"
+            else:
+                st.session_state.practice_result = "ng"
+                st.session_state.wrong_questions.append({"data":q,"mode":"practice"})
 
-            if st.session_state.result == "correct":
+        if st.session_state.practice_answered:
+
+            if st.session_state.practice_result == "ok":
                 st.success(f"正解（{q['answer']}）")
             else:
-                st.error(f"不正解（正解：{q['answer']}）")
+                st.error(f"不正解（正解:{q['answer']}）")
 
-            st.write("### 各選択肢の解説")
             for k in ["A","B","C","D"]:
-                st.write(f"{k}: {q['choice_explanations'][k]}")
+                st.write(f"{k}: {q['exp'][k]}")
 
 # =========================
 # 模試
 # =========================
 elif st.session_state.page == "exam":
 
-    show_timer()
-
     st.button("戻る", on_click=go, args=("menu",))
 
-    if st.session_state.current_exam is None:
-        st.button("試験開始", on_click=start_exam)
+    if not st.session_state.exam_q:
+        if st.button("試験開始"):
+            st.session_state.exam_index = 0
+            st.session_state.exam_done = False
+            st.session_state.exam_stats = defaultdict(lambda: {"total":0,"correct":0})
+            st.session_state.exam_q = generate(random.choice(CATEGORIES))
+            st.rerun()
 
     elif not st.session_state.exam_done:
 
-        q = st.session_state.current_exam
-
+        q = st.session_state.exam_q
         st.write(f"Q{st.session_state.exam_index+1}/40")
         st.write(q["question"])
 
-        choice = st.radio("", q["choices"], key=st.session_state.exam_index)
+        choice = st.radio("", q["choices"], key=f"exam{st.session_state.exam_index}")
 
         if st.button("次へ"):
-            next_exam(choice)
+
+            cat = q["cat"]
+            st.session_state.exam_stats[cat]["total"] += 1
+
+            if choice.startswith(q["answer"]):
+                st.session_state.exam_stats[cat]["correct"] += 1
+            else:
+                st.session_state.wrong_questions.append({"data":q,"mode":"exam"})
+
+            st.session_state.exam_index += 1
+
+            if st.session_state.exam_index >= 40:
+                st.session_state.exam_done = True
+            else:
+                st.session_state.exam_q = generate(random.choice(CATEGORIES))
+
             st.rerun()
 
     else:
-        total = sum(v["correct"] for v in st.session_state.exam_stats.values())
-        st.success(f"{total}/40")
+        stats = st.session_state.exam_stats
+
+        total = sum(v["correct"] for v in stats.values())
+        total_q = sum(v["total"] for v in stats.values())
+        rate = (total/total_q*100) if total_q else 0
+
+        st.write(f"## 結果 {total}/{total_q}")
+        st.write(f"正答率 {rate:.1f}%")
+
+        if total >= 32:
+            st.success("合格")
+        else:
+            st.error("不合格")
+
+        st.write("### 分野別")
+        for k,v in stats.items():
+            t = v["total"]
+            c = v["correct"]
+            r = (c/t*100) if t else 0
+            st.write(f"{k}: {c}/{t} ({r:.1f}%)")
 
 # =========================
 # 復習
@@ -313,22 +256,20 @@ elif st.session_state.page == "review":
         st.write("なし")
 
     else:
-        item = st.session_state.wrong_questions[0]
-        q = item["data"]
+        q = st.session_state.wrong_questions[0]["data"]
 
-        st.write(f"【{item['mode']}】")
         st.write(q["question"])
 
         choice = st.radio("", q["choices"])
 
         if st.button("回答"):
 
-            if choice and choice.startswith(q["answer"]):
+            if choice.startswith(q["answer"]):
                 st.success("正解")
                 st.session_state.wrong_questions.pop(0)
                 st.rerun()
             else:
-                st.error(f"不正解（正解：{q['answer']}）")
+                st.error(f"不正解（正解:{q['answer']}）")
 
                 for k in ["A","B","C","D"]:
-                    st.write(f"{k}: {q['choice_explanations'][k]}")
+                    st.write(f"{k}: {q['exp'][k]}")
