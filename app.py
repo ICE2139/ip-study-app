@@ -19,8 +19,7 @@ def init():
         "practice_answered":False,
 
         "wrong":[],
-        "review_i":0,
-
+        
         "exam_q":None,
         "exam_i":0,
         "exam_done":False,
@@ -42,7 +41,15 @@ CATS = [
 ]
 
 # =========================
-# 問題生成（完全安定版）
+# A〜D変換
+# =========================
+def to_label(i):
+    return ["A","B","C","D"][i]
+
+label_to_index = {"A":0,"B":1,"C":2,"D":3}
+
+# =========================
+# 問題生成（完全安定）
 # =========================
 def generate(cat):
     try:
@@ -75,7 +82,6 @@ JSON:
 
         data = json.loads(res.choices[0].message.content)
 
-        # セット化（ここが核心）
         items = list(zip(data["choices"], data["explanations"]))
         correct = items[data["answer_index"]]
 
@@ -83,20 +89,20 @@ JSON:
 
         choices = []
         exps = []
-        answer_index = None
+        ans = None
 
         for i,(c,e) in enumerate(items):
             choices.append(c)
             exps.append(e)
             if (c,e)==correct:
-                answer_index = i
+                ans = i
 
         return {
             "cat":cat,
             "q":data["question"],
             "choices":choices,
             "exps":exps,
-            "ans":answer_index
+            "ans":ans
         }
 
     except:
@@ -116,14 +122,13 @@ def go(p): st.session_state.page=p
 def select(cat):
     st.session_state.category=cat
     st.session_state.show_cat=False
-    st.rerun()
 
 # =========================
 # メニュー
 # =========================
 if st.session_state.page=="menu":
 
-    st.title("知財2級学科AIサイト(ver.1.8.1)")
+    st.title("知財2級学科AIサイト(ver.1.8.2)")
 
     st.button("問題演習",on_click=go,args=("p",))
     st.button("模擬試験",on_click=go,args=("e",))
@@ -155,23 +160,23 @@ elif st.session_state.page=="p":
     if q:
         st.write(q["q"])
 
-        choice = st.radio(
-            "",
-            [f"{i}. {c}" for i,c in enumerate(q["choices"])]
-        )
+        options = [f"{to_label(i)}. {c}" for i,c in enumerate(q["choices"])]
+        choice = st.radio("", options)
 
         if st.button("回答"):
             st.session_state.practice_answered=True
 
-            if int(choice[0]) == q["ans"]:
-                st.success("正解")
+            selected = label_to_index[choice[0]]
+
+            if selected == q["ans"]:
+                st.success(f"正解（{to_label(q['ans'])}）")
             else:
-                st.error(f"不正解（正解:{q['ans']}）")
+                st.error(f"不正解（正解：{to_label(q['ans'])}）")
                 st.session_state.wrong.append({"data":q,"mode":"practice"})
 
         if st.session_state.practice_answered:
             for i,e in enumerate(q["exps"]):
-                st.write(f"{i}: {e}")
+                st.write(f"{to_label(i)}: {e}")
 
 # =========================
 # 模試
@@ -186,7 +191,6 @@ elif st.session_state.page=="e":
             st.session_state.exam_done=False
             st.session_state.exam_stats=defaultdict(lambda: {"t":0,"c":0})
             st.session_state.exam_q=generate(random.choice(CATS))
-            st.rerun()
 
     elif not st.session_state.exam_done:
 
@@ -195,14 +199,17 @@ elif st.session_state.page=="e":
         st.write(f"Q{st.session_state.exam_i+1}/40")
         st.write(q["q"])
 
-        choice = st.radio("", [f"{i}. {c}" for i,c in enumerate(q["choices"])], key=f"ex{st.session_state.exam_i}")
+        options = [f"{to_label(i)}. {c}" for i,c in enumerate(q["choices"])]
+        choice = st.radio("", options, key=f"ex{st.session_state.exam_i}")
 
         if st.button("次へ"):
+
+            selected = label_to_index[choice[0]]
 
             cat = q["cat"]
             st.session_state.exam_stats[cat]["t"]+=1
 
-            if int(choice[0])==q["ans"]:
+            if selected == q["ans"]:
                 st.session_state.exam_stats[cat]["c"]+=1
             else:
                 st.session_state.wrong.append({"data":q,"mode":"exam"})
@@ -224,18 +231,19 @@ elif st.session_state.page=="e":
 
         rate=(total/total_q*100) if total_q else 0
 
-        st.write(f"{total}/{total_q} ({rate:.1f}%)")
+        st.write(f"## 結果 {total}/{total_q}")
+        st.write(f"正答率 {rate:.1f}%")
 
         if total>=32:
             st.success("合格")
         else:
             st.error("不合格")
 
-        st.write("分野別")
+        st.write("### 分野別")
         for k,v in stats.items():
             t=v["t"];c=v["c"]
             r=(c/t*100) if t else 0
-            st.write(f"{k}:{c}/{t} ({r:.1f}%)")
+            st.write(f"{k}: {c}/{t} ({r:.1f}%)")
 
 # =========================
 # 復習
@@ -250,17 +258,21 @@ elif st.session_state.page=="r":
     else:
         q = st.session_state.wrong[0]["data"]
 
+        st.write(f"【{st.session_state.wrong[0]['mode']}】")
         st.write(q["q"])
 
-        choice = st.radio("", [f"{i}. {c}" for i,c in enumerate(q["choices"])])
+        options = [f"{to_label(i)}. {c}" for i,c in enumerate(q["choices"])]
+        choice = st.radio("", options)
 
         if st.button("回答"):
 
-            if int(choice[0])==q["ans"]:
+            selected = label_to_index[choice[0]]
+
+            if selected==q["ans"]:
                 st.success("正解")
                 st.session_state.wrong.pop(0)
                 st.rerun()
             else:
-                st.error(f"不正解（正解:{q['ans']}）")
+                st.error(f"不正解（正解：{to_label(q['ans'])}）")
                 for i,e in enumerate(q["exps"]):
-                    st.write(f"{i}:{e}")
+                    st.write(f"{to_label(i)}: {e}")
