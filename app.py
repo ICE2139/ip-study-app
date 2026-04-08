@@ -41,6 +41,47 @@ CATS = [
 ]
 
 # =========================
+# 出題範囲（学科）
+# =========================
+SCOPE = {
+"特許・実用新案":"明細書、補正、拒絶理由通知、審判、特許要件、新規性、進歩性、出願手続、存続期間",
+"商標":"登録要件、識別力、不登録事由、効力、更新、審判",
+"著作権":"著作物、人格権、権利内容、保護期間、利用許諾、侵害",
+"条約":"パリ条約、TRIPS、マドリッド、優先権",
+"意匠":"登録要件、類似、存続期間",
+"不正競争防止法":"周知表示、営業秘密",
+"民法":"契約、意思表示",
+"独占禁止法":"不公正な取引方法",
+"種苗法":"品種登録",
+"関税法":"輸入差止",
+"外為法":"技術輸出規制",
+"弁理士法":"業務"
+}
+
+# =========================
+# 出題比重
+# =========================
+WEIGHTS = {
+"特許・実用新案":27,
+"著作権":21,
+"商標":13,
+"条約":6,
+"意匠":3,
+"不正競争防止法":3,
+"民法":2,
+"独占禁止法":2,
+"種苗法":1,
+"関税法":1,
+"外為法":1,
+"弁理士法":0.5
+}
+
+def pick_category():
+    cats = list(WEIGHTS.keys())
+    weights = [w * random.uniform(0.9,1.1) for w in WEIGHTS.values()]
+    return random.choices(cats, weights=weights, k=1)[0]
+
+# =========================
 # A〜D変換
 # =========================
 def to_label(i):
@@ -49,10 +90,12 @@ def to_label(i):
 label_to_index = {"A":0,"B":1,"C":2,"D":3}
 
 # =========================
-# 問題生成（完全安定）
+# 問題生成（最強版）
 # =========================
 def generate(cat):
     try:
+        scope = SCOPE.get(cat,"")
+
         res = client.chat.completions.create(
             model="gpt-5.4-nano",
             messages=[{
@@ -60,13 +103,19 @@ def generate(cat):
                 "content":f"""
 分野:{cat}
 
-知財2級 学科問題
+出題範囲:
+{scope}
+
+知財2級 学科試験問題を作成せよ
 
 条件:
 ・4択
-・正解1つ
+・正解は必ず1つ
 ・問題文に選択肢を書かない
-・選択肢に記号つけない
+・条文知識ベース
+・「適切なものを選べ」形式
+・選択肢は明確に正誤が分かれる
+・曖昧禁止
 
 JSON:
 {{
@@ -87,8 +136,7 @@ JSON:
 
         random.shuffle(items)
 
-        choices = []
-        exps = []
+        choices, exps = [], []
         ans = None
 
         for i,(c,e) in enumerate(items):
@@ -97,22 +145,10 @@ JSON:
             if (c,e)==correct:
                 ans = i
 
-        return {
-            "cat":cat,
-            "q":data["question"],
-            "choices":choices,
-            "exps":exps,
-            "ans":ans
-        }
+        return {"cat":cat,"q":data["question"],"choices":choices,"exps":exps,"ans":ans}
 
     except:
-        return {
-            "cat":cat,
-            "q":"生成失敗",
-            "choices":["-","-","-","-"],
-            "exps":["-","-","-","-"],
-            "ans":0
-        }
+        return {"cat":cat,"q":"生成失敗","choices":["-"]*4,"exps":["-"]*4,"ans":0}
 
 # =========================
 # UI関数
@@ -127,9 +163,7 @@ def select(cat):
 # メニュー
 # =========================
 if st.session_state.page=="menu":
-
-    st.title("知財2級学科AIサイト(ver.1.8.2)")
-
+    st.title("知財2級学科AIサイト(ver.1.8.3)")
     st.button("問題演習",on_click=go,args=("p",))
     st.button("模擬試験",on_click=go,args=("e",))
     st.button("復習",on_click=go,args=("r",))
@@ -190,7 +224,7 @@ elif st.session_state.page=="e":
             st.session_state.exam_i=0
             st.session_state.exam_done=False
             st.session_state.exam_stats=defaultdict(lambda: {"t":0,"c":0})
-            st.session_state.exam_q=generate(random.choice(CATS))
+            st.session_state.exam_q=generate(pick_category())
 
     elif not st.session_state.exam_done:
 
@@ -219,7 +253,7 @@ elif st.session_state.page=="e":
             if st.session_state.exam_i>=40:
                 st.session_state.exam_done=True
             else:
-                st.session_state.exam_q=generate(random.choice(CATS))
+                st.session_state.exam_q=generate(pick_category())
 
             st.rerun()
 
@@ -228,7 +262,6 @@ elif st.session_state.page=="e":
 
         total=sum(v["c"] for v in stats.values())
         total_q=sum(v["t"] for v in stats.values())
-
         rate=(total/total_q*100) if total_q else 0
 
         st.write(f"## 結果 {total}/{total_q}")
