@@ -7,53 +7,43 @@ from collections import defaultdict
 client = OpenAI()
 
 # =========================
-# 初期化（安全設計）
+# 初期化
 # =========================
 def init():
     defaults = {
         "page":"menu",
+        "category":None,
+        "show_cat":False,
 
-        # 共通
-        "selected_category":None,
-        "show_category":False,
-
-        # 問題演習
         "practice_q":None,
         "practice_answered":False,
-        "practice_result":None,
 
-        # 復習
-        "wrong_questions":[],
-        "review_index":0,
+        "wrong":[],
+        "review_i":0,
 
-        # 模試
-        "exam_index":0,
         "exam_q":None,
+        "exam_i":0,
         "exam_done":False,
-        "exam_stats":defaultdict(lambda: {"total":0,"correct":0}),
+        "exam_stats":defaultdict(lambda: {"t":0,"c":0}),
     }
-
     for k,v in defaults.items():
         if k not in st.session_state:
-            st.session_state[k] = v
+            st.session_state[k]=v
 
 init()
 
 # =========================
 # 分野
 # =========================
-CATEGORIES = [
+CATS = [
     "特許・実用新案","意匠","商標","条約",
     "著作権","不正競争防止法","民法",
     "独占禁止法","種苗法","関税法","外為法","弁理士法"
 ]
 
 # =========================
-# 問題生成（安定）
+# 問題生成（完全安定版）
 # =========================
-def clean(text):
-    return text.split(".",1)[-1].strip()
-
 def generate(cat):
     try:
         res = client.chat.completions.create(
@@ -62,20 +52,21 @@ def generate(cat):
                 "role":"user",
                 "content":f"""
 分野:{cat}
-知財2級学科問題を作れ
+
+知財2級 学科問題
 
 条件:
 ・4択
 ・正解1つ
-・選択肢に記号つけるな
-・各選択肢理由書け
+・問題文に選択肢を書かない
+・選択肢に記号つけない
 
 JSON:
 {{
 "question":"",
 "choices":["","","",""],
-"answer":"A",
-"choice_explanations":{{"A":"","B":"","C":"","D":""}}
+"answer_index":0,
+"explanations":["","","",""]
 }}
 """
             }],
@@ -84,192 +75,192 @@ JSON:
 
         data = json.loads(res.choices[0].message.content)
 
-        choices = [clean(c) for c in data["choices"]]
-        correct = choices[0]
+        # セット化（ここが核心）
+        items = list(zip(data["choices"], data["explanations"]))
+        correct = items[data["answer_index"]]
 
-        random.shuffle(choices)
-        labels = ["A","B","C","D"]
+        random.shuffle(items)
 
-        mapping = dict(zip(labels, choices))
+        choices = []
+        exps = []
+        answer_index = None
 
-        for k,v in mapping.items():
-            if v == correct:
-                answer = k
+        for i,(c,e) in enumerate(items):
+            choices.append(c)
+            exps.append(e)
+            if (c,e)==correct:
+                answer_index = i
 
         return {
             "cat":cat,
-            "question":data["question"],
-            "choices":[f"{k}. {v}" for k,v in mapping.items()],
-            "answer":answer,
-            "exp":data["choice_explanations"]
+            "q":data["question"],
+            "choices":choices,
+            "exps":exps,
+            "ans":answer_index
         }
 
     except:
         return {
             "cat":cat,
-            "question":"生成失敗",
-            "choices":["A.-","B.-","C.-","D.-"],
-            "answer":"A",
-            "exp":{"A":"-","B":"-","C":"-","D":"-"}
+            "q":"生成失敗",
+            "choices":["-","-","-","-"],
+            "exps":["-","-","-","-"],
+            "ans":0
         }
 
 # =========================
-# 共通UI
+# UI関数
 # =========================
-def go(p): st.session_state.page = p
+def go(p): st.session_state.page=p
 
 def select(cat):
-    st.session_state.selected_category = cat
-    st.session_state.show_category = False
+    st.session_state.category=cat
+    st.session_state.show_cat=False
     st.rerun()
 
 # =========================
 # メニュー
 # =========================
-if st.session_state.page == "menu":
+if st.session_state.page=="menu":
 
-    st.title("知財2級学科AIサイト(ver.1.8.0)")
+    st.title("知財2級学科AIサイト(ver.1.8.1)")
 
-    st.button("問題演習", on_click=go, args=("practice",))
-    st.button("模擬試験", on_click=go, args=("exam",))
-    st.button("復習", on_click=go, args=("review",))
+    st.button("問題演習",on_click=go,args=("p",))
+    st.button("模擬試験",on_click=go,args=("e",))
+    st.button("復習",on_click=go,args=("r",))
 
 # =========================
 # 問題演習
 # =========================
-elif st.session_state.page == "practice":
+elif st.session_state.page=="p":
 
-    st.button("戻る", on_click=go, args=("menu",))
+    st.button("戻る",on_click=go,args=("menu",))
 
     if st.button("分野選択"):
-        st.session_state.show_category = not st.session_state.show_category
+        st.session_state.show_cat=not st.session_state.show_cat
 
-    if st.session_state.show_category:
-        for c in CATEGORIES:
-            st.button(c, on_click=select, args=(c,))
+    if st.session_state.show_cat:
+        for c in CATS:
+            st.button(c,on_click=select,args=(c,))
 
-    if st.session_state.selected_category:
-        st.write(f"### {st.session_state.selected_category}")
+    if st.session_state.category:
+        st.write(f"### {st.session_state.category}")
 
         if st.button("問題生成"):
-            st.session_state.practice_q = generate(st.session_state.selected_category)
-            st.session_state.practice_answered = False
+            st.session_state.practice_q = generate(st.session_state.category)
+            st.session_state.practice_answered=False
 
-    if st.session_state.practice_q:
+    q = st.session_state.practice_q
 
-        q = st.session_state.practice_q
-        st.write(q["question"])
+    if q:
+        st.write(q["q"])
 
-        choice = st.radio("", q["choices"])
+        choice = st.radio(
+            "",
+            [f"{i}. {c}" for i,c in enumerate(q["choices"])]
+        )
 
         if st.button("回答"):
-            st.session_state.practice_answered = True
+            st.session_state.practice_answered=True
 
-            if choice.startswith(q["answer"]):
-                st.session_state.practice_result = "ok"
+            if int(choice[0]) == q["ans"]:
+                st.success("正解")
             else:
-                st.session_state.practice_result = "ng"
-                st.session_state.wrong_questions.append({"data":q,"mode":"practice"})
+                st.error(f"不正解（正解:{q['ans']}）")
+                st.session_state.wrong.append({"data":q,"mode":"practice"})
 
         if st.session_state.practice_answered:
-
-            if st.session_state.practice_result == "ok":
-                st.success(f"正解（{q['answer']}）")
-            else:
-                st.error(f"不正解（正解:{q['answer']}）")
-
-            for k in ["A","B","C","D"]:
-                st.write(f"{k}: {q['exp'][k]}")
+            for i,e in enumerate(q["exps"]):
+                st.write(f"{i}: {e}")
 
 # =========================
 # 模試
 # =========================
-elif st.session_state.page == "exam":
+elif st.session_state.page=="e":
 
-    st.button("戻る", on_click=go, args=("menu",))
+    st.button("戻る",on_click=go,args=("menu",))
 
     if not st.session_state.exam_q:
         if st.button("試験開始"):
-            st.session_state.exam_index = 0
-            st.session_state.exam_done = False
-            st.session_state.exam_stats = defaultdict(lambda: {"total":0,"correct":0})
-            st.session_state.exam_q = generate(random.choice(CATEGORIES))
+            st.session_state.exam_i=0
+            st.session_state.exam_done=False
+            st.session_state.exam_stats=defaultdict(lambda: {"t":0,"c":0})
+            st.session_state.exam_q=generate(random.choice(CATS))
             st.rerun()
 
     elif not st.session_state.exam_done:
 
         q = st.session_state.exam_q
-        st.write(f"Q{st.session_state.exam_index+1}/40")
-        st.write(q["question"])
 
-        choice = st.radio("", q["choices"], key=f"exam{st.session_state.exam_index}")
+        st.write(f"Q{st.session_state.exam_i+1}/40")
+        st.write(q["q"])
+
+        choice = st.radio("", [f"{i}. {c}" for i,c in enumerate(q["choices"])], key=f"ex{st.session_state.exam_i}")
 
         if st.button("次へ"):
 
             cat = q["cat"]
-            st.session_state.exam_stats[cat]["total"] += 1
+            st.session_state.exam_stats[cat]["t"]+=1
 
-            if choice.startswith(q["answer"]):
-                st.session_state.exam_stats[cat]["correct"] += 1
+            if int(choice[0])==q["ans"]:
+                st.session_state.exam_stats[cat]["c"]+=1
             else:
-                st.session_state.wrong_questions.append({"data":q,"mode":"exam"})
+                st.session_state.wrong.append({"data":q,"mode":"exam"})
 
-            st.session_state.exam_index += 1
+            st.session_state.exam_i+=1
 
-            if st.session_state.exam_index >= 40:
-                st.session_state.exam_done = True
+            if st.session_state.exam_i>=40:
+                st.session_state.exam_done=True
             else:
-                st.session_state.exam_q = generate(random.choice(CATEGORIES))
+                st.session_state.exam_q=generate(random.choice(CATS))
 
             st.rerun()
 
     else:
-        stats = st.session_state.exam_stats
+        stats=st.session_state.exam_stats
 
-        total = sum(v["correct"] for v in stats.values())
-        total_q = sum(v["total"] for v in stats.values())
-        rate = (total/total_q*100) if total_q else 0
+        total=sum(v["c"] for v in stats.values())
+        total_q=sum(v["t"] for v in stats.values())
 
-        st.write(f"## 結果 {total}/{total_q}")
-        st.write(f"正答率 {rate:.1f}%")
+        rate=(total/total_q*100) if total_q else 0
 
-        if total >= 32:
+        st.write(f"{total}/{total_q} ({rate:.1f}%)")
+
+        if total>=32:
             st.success("合格")
         else:
             st.error("不合格")
 
-        st.write("### 分野別")
+        st.write("分野別")
         for k,v in stats.items():
-            t = v["total"]
-            c = v["correct"]
-            r = (c/t*100) if t else 0
-            st.write(f"{k}: {c}/{t} ({r:.1f}%)")
+            t=v["t"];c=v["c"]
+            r=(c/t*100) if t else 0
+            st.write(f"{k}:{c}/{t} ({r:.1f}%)")
 
 # =========================
 # 復習
 # =========================
-elif st.session_state.page == "review":
+elif st.session_state.page=="r":
 
-    st.button("戻る", on_click=go, args=("menu",))
+    st.button("戻る",on_click=go,args=("menu",))
 
-    if not st.session_state.wrong_questions:
+    if not st.session_state.wrong:
         st.write("なし")
 
     else:
-        q = st.session_state.wrong_questions[0]["data"]
+        q = st.session_state.wrong[0]["data"]
 
-        st.write(q["question"])
+        st.write(q["q"])
 
-        choice = st.radio("", q["choices"])
+        choice = st.radio("", [f"{i}. {c}" for i,c in enumerate(q["choices"])])
 
         if st.button("回答"):
 
-            if choice.startswith(q["answer"]):
+            if int(choice[0])==q["ans"]:
                 st.success("正解")
-                st.session_state.wrong_questions.pop(0)
+                st.session_state.wrong.pop(0)
                 st.rerun()
             else:
-                st.error(f"不正解（正解:{q['answer']}）")
-
-                for k in ["A","B","C","D"]:
-                    st.write(f"{k}: {q['exp'][k]}")
+                st.error(f"不正解（正解:{q['ans']}）")
+                for i,e in enumerate(q["exps"]):
+                    st.write(f"{i}:{e}")
